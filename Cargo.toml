@@ -1,5 +1,5 @@
 [package]
-name = "rust-cli-tool-template"
+name = "gen"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,3 +9,6 @@ edition = "2021"
 atty = "0.2.14"
 clap = { version = "4.5.4", features = ["derive"] }
 dirs = "5.0.1"
+rand = "0.8.5"
+random-string = "1.1.0"
+uuid = { version = "1.8.0", features = ["v1", "v3", "v4", "v5", "v6", "v7", "v8"] }
