@@ -8,15 +8,11 @@ pub fn run(args: GenArgs) -> String {
         Command::Int { range } => generate_int(range),
         Command::Float { range } => generate_float(range),
         Command::Uuid { version } => generate_uuid(version),
-        Command::Url { 
+        Command::Url {
             length,
             path,
             query,
-        } => generate_url(
-            length,
-            path,
-            query
-        ),
+        } => generate_url(length, path, query),
     };
 }
 
@@ -39,14 +35,10 @@ fn generate_uuid(version: Option<UuidVersion>) -> String {
         Some(UuidVersion::Empty) => Uuid::nil().to_string(),
         Some(UuidVersion::Max) => Uuid::max().to_string(),
         Some(UuidVersion::V4) | None => Uuid::new_v4().to_string(),
-    }
+    };
 }
 
-fn generate_url(
-    length: Option<usize>,
-    path: Option<Option<u8>>,
-    query: bool) -> String {
-    
+fn generate_url(length: Option<usize>, path: Option<Option<u8>>, query: bool) -> String {
     let protocol = "https".to_owned();
     let domain = gen_str(length) + "." + &gen_str(Some(3));
     let paths = if let Some(p) = path {
@@ -65,7 +57,15 @@ fn generate_url(
         (None, false) => return format!("{}://{}", protocol, domain),
         (Some(p), false) => return format!("{}://{}/{}", protocol, domain, p.join("/")),
         (None, true) => return format!("{}://{}/?{}", protocol, domain, gen_str(length)),
-        (Some(p), true) => return format!("{}://{}/{}?{}", protocol, domain, p.join("/"), gen_str(length)),
+        (Some(p), true) => {
+            return format!(
+                "{}://{}/{}?{}",
+                protocol,
+                domain,
+                p.join("/"),
+                gen_str(length)
+            )
+        }
     }
 }
 

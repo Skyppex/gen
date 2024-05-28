@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use clap::{ArgGroup, Error, Parser, Subcommand};
+use clap::{error::ErrorKind, ArgGroup, Error, Parser, Subcommand};
 
 /// Write a concise description of the command here.
 #[derive(Debug, Clone, Parser)]
@@ -33,31 +33,34 @@ pub enum Command {
     /// Use conventional range notation (e.g. 1..100).
     /// The range is inclusive.
     /// If no range is specified, the default is 0..100.
-    Int {
-        range: Option<IntRange>,
-    },
+    Int { range: Option<IntRange> },
+
     /// Generate a random floating-point number.
     /// Use conventional range notation (e.g. 1.0..100.0).
     /// The range is inclusive.
     /// If no range is specified, the default is 0.0..1.0.
-    Float {
-        range: Option<FloatRange>,
-    },
+    Float { range: Option<FloatRange> },
     /// Generate a random UUID.
     /// Optionally specify the version.
     /// If not specified, version 4 is used.
     Uuid {
+        /// The version of the UUID to generate.
+        /// If not specified, version 4 is used.
+        /// Possible values: empty, 4, max.
         version: Option<UuidVersion>,
     },
     /// Generate a random URL.
     /// Optionally specify the length of the generated strings
     /// and the number of path segments.
     Url {
+        /// The length of the generated strings.
         length: Option<usize>,
 
+        /// The number of path segments.
         #[arg(short, long)]
         path: Option<Option<u8>>,
 
+        /// Include a query string.
         #[arg(short, long)]
         query: bool,
     },
@@ -76,11 +79,15 @@ impl FromStr for IntRange {
         let parts: Vec<&str> = s.split("..").collect();
 
         if parts.len() != 2 {
-            return Err(Error::new(clap::error::ErrorKind::ValueValidation));
+            return Err(Error::new(ErrorKind::ValueValidation));
         }
 
-        let min = parts[0].parse().map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
-        let max = parts[1].parse().map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
+        let min = parts[0]
+            .parse()
+            .map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
+        let max = parts[1]
+            .parse()
+            .map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
 
         Ok(IntRange { min, max })
     }
@@ -102,14 +109,18 @@ impl FromStr for FloatRange {
             return Err(Error::new(clap::error::ErrorKind::ValueValidation));
         }
 
-        let min = parts[0].parse().map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
-        let max = parts[1].parse().map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
+        let min = parts[0]
+            .parse()
+            .map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
+        let max = parts[1]
+            .parse()
+            .map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
 
         Ok(FloatRange { min, max })
     }
 }
 
-#[derive(Debug, Clone, Parser,)]
+#[derive(Debug, Clone, Parser)]
 pub enum UuidVersion {
     Empty,
     V4,
