@@ -15,7 +15,8 @@ fn main() -> Result<()> {
     let output = program::run(args.clone());
 
     match args.destination {
-        Some(d) => fs::write(d.clone(), output).expect(&format!("Failed to write to file {:?}", d)),
+        Some(d) => fs::write(d.clone(), output)
+            .unwrap_or_else(|_| panic!("Failed to write to file {:?}", d)),
         None => io::stdout()
             .write_all(output.as_bytes())
             .expect("Failed to write to stdout"),
