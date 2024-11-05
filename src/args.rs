@@ -6,52 +6,52 @@ use clap::{error::ErrorKind, ArgGroup, Error, Parser, Subcommand};
 #[derive(Debug, Clone, Parser)]
 #[command(version, author, about)]
 #[command(group=ArgGroup::new("log").args(["verbose", "quiet"]).multiple(false))]
+// Only for the ascii subcommand. It doesn't work when i but this line on the enum variant itself
+#[command(group=ArgGroup::new("charset").args(&["charset", "printable_only"]).multiple(false))]
 pub struct GenArgs {
-    // /// The source file to read from. If not provided, read from stdin.
-    // #[arg(short, long)]
-    // pub source: Option<String>,
     /// The destination file to write to. If not provided, write to stdout.
     #[arg(short, long)]
     pub destination: Option<String>,
 
-    /// Enable verbose logging.
+    /// The number of threads to use.
     #[arg(short, long)]
-    pub verbose: bool,
-
-    /// Suppress all informational output.
-    /// Fatal errors will still be printed to stderr.
-    #[arg(short, long)]
-    pub quiet: bool,
+    pub threads: Option<usize>,
 
     #[command(subcommand)]
     pub commands: Command,
 }
 
 #[derive(Subcommand, Debug, Clone)]
+#[command(verbatim_doc_comment)]
 pub enum Command {
     /// Generate a random integer.
     /// Use conventional range notation (e.g. 1..100).
     /// The range is inclusive.
-    /// default: 0..100.
+    /// Default: 0..100.
+    #[command(verbatim_doc_comment)]
     Int { range: Option<IntRange> },
 
     /// Generate a random floating-point number.
     /// Use conventional range notation (e.g. 1.0..100.0).
     /// The range is inclusive.
-    /// If no range is specified, the default is 0.0..1.0.
+    /// Default: 0.0..1.0.
+    #[command(verbatim_doc_comment)]
     Float { range: Option<FloatRange> },
+
     /// Generate a random UUID.
     /// Optionally specify the version.
-    /// If not specified, version 4 is used.
+    /// Default: v4.
+    #[command(verbatim_doc_comment)]
     Uuid {
         /// The version of the UUID to generate.
-        /// If not specified, version 4 is used.
-        /// Possible values: empty, 4, max.
+        /// Possible values: empty, v4, max.
+        /// Default: v4.
+        #[arg(verbatim_doc_comment)]
         version: Option<UuidVersion>,
     },
+
     /// Generate a random URL.
-    /// Optionally specify the length of the generated strings
-    /// and the number of path segments.
+    #[command(verbatim_doc_comment)]
     Url {
         /// The length of the generated strings.
         #[arg(short, long)]
@@ -66,14 +66,18 @@ pub enum Command {
         query: bool,
     },
 
+    /// Generate a random ASCII string.
+    /// Warning: This command may generate non-printable characters and control characters.
+    /// Warning: Your terminal emulator might have trouble rendering large output strings.
+    #[command(verbatim_doc_comment)]
     Ascii {
         /// Choose a specific character set.
         #[arg(short, long)]
         charset: Option<String>,
 
-        /// Choose a specific character set.
-        #[arg(long, num_args = 1..)]
-        charset_ranges: Option<Vec<IntRange>>,
+        /// Only include printable characters.
+        #[arg(long)]
+        printable_only: bool,
 
         /// Exclude a specific character set.
         #[arg(short, long)]
@@ -83,11 +87,16 @@ pub enum Command {
         #[arg(long, num_args = 1..)]
         exclude_codes: Option<Vec<u8>>,
 
-        /// Size of the output.
+        /// Size of the output. Format: <value><unit>. Possible units: B, KB, MB, GB.
         size: ByteSize,
     },
 
+    /// Generate a random Unicode string.
+    /// Warning: This command may generate non-printable characters and control characters.
+    /// Warning: Your terminal emulator might have trouble rendering large output strings.
+    #[command(verbatim_doc_comment)]
     Unicode {
+        /// Choose a specific encoding. Possible values: utf8, utf16, utf32.
         encoding: UnicodeEncoding,
 
         /// Choose a specific character set.
@@ -187,17 +196,23 @@ pub struct ByteSize {
 pub enum ByteUnit {
     B,
     KB,
+    KiB,
     MB,
+    MiB,
     GB,
+    GiB,
 }
 
 impl ByteSize {
     pub fn to_bytes(&self) -> usize {
         match self.unit {
             ByteUnit::B => self.value,
-            ByteUnit::KB => self.value * 1024,
-            ByteUnit::MB => self.value * 1024 * 1024,
-            ByteUnit::GB => self.value * 1024 * 1024 * 1024,
+            ByteUnit::KB => self.value * 1000,
+            ByteUnit::KiB => self.value * 1024,
+            ByteUnit::MB => self.value * 1000 * 1000,
+            ByteUnit::MiB => self.value * 1024 * 1024,
+            ByteUnit::GB => self.value * 1000 * 1000 * 1000,
+            ByteUnit::GiB => self.value * 1024 * 1024 * 1024,
         }
     }
 }
@@ -230,9 +245,12 @@ impl FromStr for ByteUnit {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "B" | "b" => Ok(ByteUnit::B),
-            "KB" | "kb" => Ok(ByteUnit::KB),
-            "MB" | "mb" => Ok(ByteUnit::MB),
-            "GB" | "gb" => Ok(ByteUnit::GB),
+            "kb" | "kB" | "KB" => Ok(ByteUnit::KB),
+            "kib" | "KiB" => Ok(ByteUnit::KiB),
+            "mb" | "mB" | "MB" => Ok(ByteUnit::MB),
+            "mib" | "MiB" => Ok(ByteUnit::MiB),
+            "gb" | "gB" | "GB" => Ok(ByteUnit::GB),
+            "gib" | "GiB" => Ok(ByteUnit::GiB),
             _ => Err(Error::new(clap::error::ErrorKind::ValueValidation)),
         }
     }
@@ -250,9 +268,9 @@ impl FromStr for UnicodeEncoding {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "utf_8" | "utf8" | "8" => Ok(UnicodeEncoding::Utf8),
-            "utf_16" | "utf16" | "16" => Ok(UnicodeEncoding::Utf16),
-            "utf_32" | "utf32" | "32" => Ok(UnicodeEncoding::Utf32),
+            "utf_8" | "utf-8" | "utf8" | "8" => Ok(UnicodeEncoding::Utf8),
+            "utf_16" | "utf-16" | "utf16" | "16" => Ok(UnicodeEncoding::Utf16),
+            "utf_32" | "utf-32" | "utf32" | "32" => Ok(UnicodeEncoding::Utf32),
             _ => Err(Error::new(clap::error::ErrorKind::ValueValidation)),
         }
     }
