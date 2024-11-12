@@ -1,11 +1,16 @@
-use std::{io::Write, num::NonZeroUsize};
+use std::{
+    io::Write,
+    num::NonZeroUsize,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 use crate::args::{ByteSize, Command, FloatRange, GenArgs, IntRange, UnicodeEncoding, UuidVersion};
 use rand::Rng;
 use random_string::{charsets, generate, generate_rng};
 use uuid::Uuid;
 
-pub fn run<T: Write>(args: GenArgs, writer: T) {
+pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
     match args.commands {
         Command::Int { range } => generate_int(range, writer),
         Command::Float { range } => generate_float(range, writer),
@@ -16,29 +21,33 @@ pub fn run<T: Write>(args: GenArgs, writer: T) {
             query,
         } => generate_url(length, path, query, writer),
         Command::Ascii {
+            size,
             charset,
             printable_only,
             exclude,
             exclude_codes,
-            size,
+            threads,
         } => generate_ascii(
+            size,
             charset,
             printable_only,
             exclude,
             exclude_codes,
-            size,
+            threads,
             writer,
         ),
         Command::Unicode {
+            size,
             encoding,
             charset,
             exclude,
-            size,
-        } => generate_unicode(encoding, charset, exclude, size, writer),
+            threads,
+        } => generate_unicode(size, encoding, charset, exclude, threads, writer),
     }
 }
 
-fn generate_int<T: Write>(range: Option<IntRange>, mut writer: T) {
+fn generate_int<T: Write>(range: Option<IntRange>, writer: Arc<Mutex<T>>) {
+    let mut writer = writer.lock().unwrap();
     let mut rng = rand::thread_rng();
     let min = range.clone().map_or(0, |r| r.min);
     let max = range.map_or(100, |r| r.max);
@@ -46,7 +55,8 @@ fn generate_int<T: Write>(range: Option<IntRange>, mut writer: T) {
     writer.flush().unwrap();
 }
 
-fn generate_float<T: Write>(range: Option<FloatRange>, mut writer: T) {
+fn generate_float<T: Write>(range: Option<FloatRange>, writer: Arc<Mutex<T>>) {
+    let mut writer = writer.lock().unwrap();
     let mut rng = rand::thread_rng();
     let min = range.clone().map_or(0.0, |r| r.min);
     let max = range.map_or(1.0, |r| r.max);
@@ -54,7 +64,8 @@ fn generate_float<T: Write>(range: Option<FloatRange>, mut writer: T) {
     writer.flush().unwrap();
 }
 
-fn generate_uuid<T: Write>(version: Option<UuidVersion>, mut writer: T) {
+fn generate_uuid<T: Write>(version: Option<UuidVersion>, writer: Arc<Mutex<T>>) {
+    let mut writer = writer.lock().unwrap();
     write!(
         writer,
         "{}",
@@ -73,8 +84,9 @@ fn generate_url<T: Write>(
     length: Option<usize>,
     path: Option<Option<u8>>,
     query: bool,
-    mut writer: T,
+    writer: Arc<Mutex<T>>,
 ) {
+    let mut writer = writer.lock().unwrap();
     let protocol = "https".to_owned();
     let domain = gen_str(length) + "." + &gen_str(Some(3));
     let paths = if let Some(p) = path {
@@ -109,68 +121,88 @@ fn generate_url<T: Write>(
     writer.flush().unwrap();
 }
 
-fn generate_ascii<T: Write>(
+fn generate_ascii<T: Write + Send + 'static>(
+    size: ByteSize,
     charset: Option<String>,
     printable_only: bool,
     exclude: Option<String>,
     exclude_codes: Option<Vec<u8>>,
-    size: ByteSize,
-    mut writer: T,
+    threads: Option<NonZeroUsize>,
+    writer: Arc<Mutex<T>>,
 ) {
-    let num_threads = num_cpus::get();
-    let total_size = size.to_bytes();
-    let chunk_size = total_size / num_threads;
-
-    let ascii_chars = if printable_only {
+    let ascii_chars: Vec<char> = if printable_only {
         (32..127).filter_map(std::char::from_u32).collect()
     } else {
         (0..128).filter_map(std::char::from_u32).collect()
     };
 
-    let mut chars = charset
-        .unwrap_or(ascii_chars)
+    let mut chars: Vec<char> = charset
+        .unwrap_or_else(|| ascii_chars.iter().collect())
         .chars()
-        .collect::<Vec<char>>();
+        .collect();
 
-    match (exclude, exclude_codes) {
-        (Some(e), None) => chars.retain(|c| !e.chars().collect::<Vec<char>>().contains(c)),
-        (None, Some(e)) => chars.retain(|c| {
-            !e.iter()
-                .map(|c| *c as char)
-                .collect::<Vec<char>>()
-                .contains(c)
-        }),
-        (Some(e1), Some(e2)) => chars.retain(|c| {
-            !e1.chars().collect::<Vec<char>>().contains(c)
-                && !e2
-                    .iter()
-                    .map(|c| *c as char)
-                    .collect::<Vec<char>>()
-                    .contains(c)
-        }),
-        (None, None) => {}
+    if let Some(exclude) = exclude {
+        chars.retain(|c| !exclude.contains(*c));
+    }
+
+    if let Some(exclude_codes) = exclude_codes {
+        chars.retain(|c| !exclude_codes.contains(&(*c as u8)));
     }
 
     if chars.is_empty() {
         panic!("Charset cannot be empty");
     }
 
-    let mut rng = rand::thread_rng();
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(|| num_cpus::get());
+    let total_size = size.to_bytes();
+    let chunk_size = total_size / num_threads;
+    let remainder = total_size % num_threads;
 
-    (0..total_size).for_each(|_| {
-        let idx = rng.gen_range(0..chars.len());
-        write!(writer, "{}", chars[idx]).expect("Failed to write to output");
-    });
+    let chars_len = chars.len();
+    let chars = Arc::new(chars);
 
-    writer.flush().unwrap();
+    let mut handles = vec![];
+
+    for i in 0..num_threads {
+        let writer = Arc::clone(&writer);
+        let chars = Arc::clone(&chars);
+
+        let chunk_size = if i == num_threads - 1 {
+            chunk_size + remainder
+        } else {
+            chunk_size
+        };
+
+        let handle = thread::spawn(move || {
+            let mut rng = rand::thread_rng();
+            let mut buffer = Vec::with_capacity(chunk_size);
+
+            for _ in 0..chunk_size {
+                let char_index = rng.gen_range(0..chars_len);
+                buffer.push(chars[char_index] as u8);
+            }
+
+            let mut writer = writer.lock().expect("Failed to lock writer");
+            writer
+                .write_all(&buffer)
+                .expect("Failed to write to buffer");
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
 }
 
-fn generate_unicode<T: Write>(
+fn generate_unicode<T: Write + Send + 'static>(
+    size: ByteSize,
     encoding: UnicodeEncoding,
     charset: Option<String>,
     exclude: Option<String>,
-    size: ByteSize,
-    mut writer: T,
+    threads: Option<NonZeroUsize>,
+    writer: Arc<Mutex<T>>,
 ) {
     let unicode_chars: Vec<char> = (0..=0x10FFFF).filter_map(std::char::from_u32).collect();
 
@@ -187,28 +219,62 @@ fn generate_unicode<T: Write>(
         panic!("Charset cannot be empty");
     }
 
-    let mut rng = rand::thread_rng();
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(|| num_cpus::get());
+    let total_size = size.to_bytes();
+    let chunk_size = total_size / num_threads;
+    let remainder = total_size % num_threads;
 
-    let target_bytes = size.to_bytes();
-    let mut current_bytes = 0;
+    let chars_len = chars.len();
+    let chars = Arc::new(chars);
+    let encoding = Arc::new(encoding);
 
-    while current_bytes < target_bytes {
-        let idx = rng.gen_range(0..chars.len());
-        let ch = chars[idx];
+    let mut handles = vec![];
 
-        let ch_bytes = match encoding {
-            UnicodeEncoding::Utf8 => ch.len_utf8(),
-            UnicodeEncoding::Utf16 => ch.len_utf16() * 2, // Each UTF-16 unit is 2 bytes
-            UnicodeEncoding::Utf32 => 4,                  // Each UTF-32 character is 4 bytes
+    for i in 0..num_threads {
+        let writer = Arc::clone(&writer);
+        let chars = Arc::clone(&chars);
+        let encoding = Arc::clone(&encoding);
+
+        let chunk_size = if i == num_threads - 1 {
+            chunk_size + remainder
+        } else {
+            chunk_size
         };
 
-        if current_bytes + ch_bytes <= target_bytes {
-            write!(writer, "{}", ch).expect("Failed to write to output");
-            current_bytes += ch_bytes;
-        }
+        let handle = thread::spawn(move || {
+            let mut rng = rand::thread_rng();
+            let mut buffer = Vec::with_capacity(chunk_size);
+            let mut current_bytes = 0;
+
+            while current_bytes < chunk_size {
+                let char_index = rng.gen_range(0..chars_len);
+                let ch = chars[char_index];
+
+                let ch_bytes = match *encoding.clone() {
+                    UnicodeEncoding::Utf8 => ch.len_utf8(),
+                    UnicodeEncoding::Utf16 => ch.len_utf16() * 2, // Each UTF-16 unit is 2 bytes
+                    UnicodeEncoding::Utf32 => 4, // Each UTF-32 character is 4 bytes
+                };
+
+                if current_bytes + ch_bytes <= chunk_size {
+                    buffer.push(ch as u8);
+                    current_bytes += ch_bytes;
+                }
+            }
+
+            let mut writer = writer.lock().expect("Failed to lock writer");
+
+            writer
+                .write_all(&buffer)
+                .expect("Failed to write to buffer");
+        });
+
+        handles.push(handle);
     }
 
-    writer.flush().unwrap();
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
 }
 
 fn gen_str(length: Option<usize>) -> String {

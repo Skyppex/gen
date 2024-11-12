@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{num::NonZeroUsize, str::FromStr};
 
 use clap::{error::ErrorKind, ArgGroup, Error, Parser, Subcommand};
 
@@ -12,10 +12,6 @@ pub struct GenArgs {
     /// The destination file to write to. If not provided, write to stdout.
     #[arg(short, long)]
     pub destination: Option<String>,
-
-    /// The number of threads to use.
-    #[arg(short, long)]
-    pub threads: Option<usize>,
 
     #[command(subcommand)]
     pub commands: Command,
@@ -71,6 +67,9 @@ pub enum Command {
     /// Warning: Your terminal emulator might have trouble rendering large output strings.
     #[command(verbatim_doc_comment)]
     Ascii {
+        /// Size of the output. Format: <value><unit>. Possible units: B, KB, MB, GB.
+        size: ByteSize,
+
         /// Choose a specific character set.
         #[arg(short, long)]
         charset: Option<String>,
@@ -87,8 +86,9 @@ pub enum Command {
         #[arg(long, num_args = 1..)]
         exclude_codes: Option<Vec<u8>>,
 
-        /// Size of the output. Format: <value><unit>. Possible units: B, KB, MB, GB.
-        size: ByteSize,
+        /// The number of threads to use.
+        #[arg(short, long)]
+        threads: Option<NonZeroUsize>,
     },
 
     /// Generate a random Unicode string.
@@ -96,6 +96,9 @@ pub enum Command {
     /// Warning: Your terminal emulator might have trouble rendering large output strings.
     #[command(verbatim_doc_comment)]
     Unicode {
+        /// Size of the output.
+        size: ByteSize,
+
         /// Choose a specific encoding. Possible values: utf8, utf16, utf32.
         encoding: UnicodeEncoding,
 
@@ -107,8 +110,9 @@ pub enum Command {
         #[arg(short, long)]
         exclude: Option<String>,
 
-        /// Size of the output.
-        size: ByteSize,
+        /// The number of threads to use.
+        #[arg(short, long)]
+        threads: Option<NonZeroUsize>,
     },
 }
 
