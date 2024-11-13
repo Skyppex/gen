@@ -15,7 +15,14 @@ fn main() -> Result<()> {
 
     match &args.destination {
         Some(dest) => {
-            let writer = fs::File::create(dest.clone())
+            let dest = std::path::Path::new(dest);
+
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent)
+                    .unwrap_or_else(|_| panic!("Failed to create directories for {:?}", parent));
+            }
+
+            let writer = fs::File::create(dest)
                 .unwrap_or_else(|_| panic!("Failed to create file {:?}", dest));
 
             program::run(args.clone(), Arc::new(Mutex::new(writer)));
