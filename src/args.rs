@@ -5,9 +5,7 @@ use clap::{error::ErrorKind, ArgGroup, Error, Parser, Subcommand};
 /// Write a concise description of the command here.
 #[derive(Debug, Clone, Parser)]
 #[command(version, author, about)]
-#[command(group=ArgGroup::new("log").args(["verbose", "quiet"]).multiple(false))]
 // Only for the ascii subcommand. It doesn't work when i but this line on the enum variant itself
-#[command(group=ArgGroup::new("charset").args(&["charset", "printable_only"]).multiple(false))]
 pub struct GenArgs {
     /// The destination file to write to. If not provided, write to stdout.
     #[arg(short, long)]
@@ -65,7 +63,10 @@ pub enum Command {
     /// Generate a random ASCII string.
     /// Warning: This command may generate non-printable characters and control characters.
     /// Warning: Your terminal emulator might have trouble rendering large output strings.
+    ///   If you are trying to generate a lot of data,
+    ///   consider using the --destination flag to write to a file.
     #[command(verbatim_doc_comment)]
+    #[command(group=ArgGroup::new("chars").args(&["charset", "printable_only"]).multiple(false))]
     Ascii {
         /// Size of the output. Format: <value><unit>.
         /// Possible units: B, KB, MB, GB, KiB, MiB, GiB.

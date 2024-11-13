@@ -155,31 +155,47 @@ fn generate_ascii<T: Write + Send + 'static>(
 
     let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
     let total_size = size.to_bytes();
-    let chunk_size = total_size / num_threads;
-    let remainder = total_size % num_threads;
+
+    const SIMUL_BYTES: usize = 8;
+
+    // Calculate full chunks per thread
+    let full_chunks = total_size / (num_threads * SIMUL_BYTES);
+
+    // Calculate remaining bytes
+    let remaining_bytes = total_size % (num_threads * SIMUL_BYTES);
+
+    // Initialize chunks with full_chunks
+    let mut chunks = vec![full_chunks; num_threads];
+
+    // Distribute remaining bytes only if they are enough to form a full chunk
+    if remaining_bytes >= SIMUL_BYTES {
+        let additional_chunks = remaining_bytes / SIMUL_BYTES;
+
+        for i in 0..additional_chunks {
+            chunks[i % num_threads] += 1;
+        }
+    }
 
     let chars_len = chars.len();
     let chars = Arc::new(chars);
 
     let mut handles = vec![];
 
-    for i in 0..num_threads {
+    for chunk_size in chunks {
         let writer = Arc::clone(&writer);
         let chars = Arc::clone(&chars);
-
-        let chunk_size = if i == num_threads - 1 {
-            chunk_size + remainder
-        } else {
-            chunk_size
-        };
 
         let handle = thread::spawn(move || {
             let mut rng = rand::thread_rng();
             let mut buffer = Vec::with_capacity(chunk_size);
 
             for _ in 0..chunk_size {
-                let char_index = rng.gen_range(0..chars_len);
-                buffer.push(chars[char_index] as u8);
+                let num = rng.gen::<u64>();
+                let char_indecies = num.to_ne_bytes().map(|b| (b as usize) % chars_len);
+
+                for char_index in char_indecies {
+                    buffer.push(chars[char_index] as u8);
+                }
             }
 
             let mut writer = writer.lock().expect("Failed to lock writer");
@@ -193,6 +209,25 @@ fn generate_ascii<T: Write + Send + 'static>(
 
     for handle in handles {
         handle.join().expect("Thread panicked");
+    }
+
+    // Handle the remaining size if less than SIMUL_BYTES
+    let leftover_bytes = remaining_bytes % SIMUL_BYTES;
+
+    if leftover_bytes > 0 {
+        let mut rng = rand::thread_rng();
+        let mut buffer = Vec::with_capacity(leftover_bytes);
+
+        for _ in 0..leftover_bytes {
+            let num = rng.gen_range(0..chars_len);
+            buffer.push(chars[num] as u8);
+        }
+
+        // You can then decide how to use this buffer, e.g., append to a file or process further
+        let mut writer = writer.lock().expect("Failed to lock writer");
+        writer
+            .write_all(&buffer)
+            .expect("Failed to write to buffer");
     }
 }
 
@@ -212,13 +247,6 @@ fn generate_unicode<T: Write + Send + 'static>(
         UnicodeEncoding::Utf32 => 4,
     };
 
-    if total_size % min_byte_size != 0 {
-        panic!(
-            "Size must be divisible by {} for {} encoding",
-            min_byte_size, encoding
-        );
-    }
-
     if total_size < min_byte_size {
         panic!(
             "Size too small for encoding.\nMinimum size for {} encoding is {} bytes",
@@ -226,8 +254,14 @@ fn generate_unicode<T: Write + Send + 'static>(
         );
     }
 
+    if total_size % min_byte_size != 0 {
+        panic!(
+            "Size must be divisible by {} for {} encoding",
+            min_byte_size, encoding
+        );
+    }
+
     let unicode_chars: Vec<char> = (0..=0x10FFFF).filter_map(std::char::from_u32).collect();
-    // let unicode_chars: Vec<char> = (0..128).filter_map(std::char::from_u32).collect();
 
     let mut chars = charset
         .unwrap_or_else(|| unicode_chars.iter().collect())
@@ -260,7 +294,6 @@ fn generate_unicode<T: Write + Send + 'static>(
     let mut handles = vec![];
 
     for chunk_size in chunks {
-        println!("{chunk_size}");
         let writer = Arc::clone(&writer);
         let chars = Arc::clone(&chars);
         let encoding = Arc::clone(&encoding);
@@ -339,7 +372,7 @@ fn generate_unicode<T: Write + Send + 'static>(
 fn gen_str(length: Option<usize>) -> String {
     match length {
         Some(l) => generate(l, charsets::ALPHA_LOWER),
-        None => generate_rng(5..15, charsets::ALPHA_LOWER),
+        None => generate_rng(5..15, charsets::ALPHA_LOWER.chars().collect::<Vec<_>>()),
     }
 }
 
