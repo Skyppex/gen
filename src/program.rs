@@ -153,7 +153,7 @@ fn generate_ascii<T: Write + Send + 'static>(
         panic!("Charset cannot be empty");
     }
 
-    let num_threads = threads.map(|t| t.get()).unwrap_or_else(|| num_cpus::get());
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
     let total_size = size.to_bytes();
     let chunk_size = total_size / num_threads;
     let remainder = total_size % num_threads;
@@ -204,7 +204,30 @@ fn generate_unicode<T: Write + Send + 'static>(
     threads: Option<NonZeroUsize>,
     writer: Arc<Mutex<T>>,
 ) {
+    let total_size = size.to_bytes();
+
+    let min_byte_size = match encoding {
+        UnicodeEncoding::Utf8 => 1,
+        UnicodeEncoding::Utf16 => 2,
+        UnicodeEncoding::Utf32 => 4,
+    };
+
+    if total_size % min_byte_size != 0 {
+        panic!(
+            "Size must be divisible by {} for {} encoding",
+            min_byte_size, encoding
+        );
+    }
+
+    if total_size < min_byte_size {
+        panic!(
+            "Size too small for encoding.\nMinimum size for {} encoding is {} bytes",
+            encoding, min_byte_size
+        );
+    }
+
     let unicode_chars: Vec<char> = (0..=0x10FFFF).filter_map(std::char::from_u32).collect();
+    // let unicode_chars: Vec<char> = (0..128).filter_map(std::char::from_u32).collect();
 
     let mut chars = charset
         .unwrap_or_else(|| unicode_chars.iter().collect())
@@ -219,10 +242,16 @@ fn generate_unicode<T: Write + Send + 'static>(
         panic!("Charset cannot be empty");
     }
 
-    let num_threads = threads.map(|t| t.get()).unwrap_or_else(|| num_cpus::get());
-    let total_size = size.to_bytes();
-    let chunk_size = total_size / num_threads;
-    let remainder = total_size % num_threads;
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
+
+    let base_size = total_size / (num_threads * min_byte_size);
+    let remainder = (total_size / min_byte_size) % num_threads;
+
+    let mut chunks = vec![base_size * min_byte_size; num_threads];
+
+    for chunk in chunks.iter_mut().take(remainder) {
+        *chunk += min_byte_size;
+    }
 
     let chars_len = chars.len();
     let chars = Arc::new(chars);
@@ -230,40 +259,70 @@ fn generate_unicode<T: Write + Send + 'static>(
 
     let mut handles = vec![];
 
-    for i in 0..num_threads {
+    for chunk_size in chunks {
+        println!("{chunk_size}");
         let writer = Arc::clone(&writer);
         let chars = Arc::clone(&chars);
         let encoding = Arc::clone(&encoding);
-
-        let chunk_size = if i == num_threads - 1 {
-            chunk_size + remainder
-        } else {
-            chunk_size
-        };
 
         let handle = thread::spawn(move || {
             let mut rng = rand::thread_rng();
             let mut buffer = Vec::with_capacity(chunk_size);
             let mut current_bytes = 0;
 
-            while current_bytes < chunk_size {
-                let char_index = rng.gen_range(0..chars_len);
-                let ch = chars[char_index];
+            match *encoding {
+                UnicodeEncoding::Utf8 => {
+                    while current_bytes < chunk_size {
+                        let char_index = rng.gen_range(0..chars_len);
+                        let ch = chars[char_index];
 
-                let ch_bytes = match *encoding.clone() {
-                    UnicodeEncoding::Utf8 => ch.len_utf8(),
-                    UnicodeEncoding::Utf16 => ch.len_utf16() * 2, // Each UTF-16 unit is 2 bytes
-                    UnicodeEncoding::Utf32 => 4, // Each UTF-32 character is 4 bytes
-                };
+                        let len = ch.len_utf8();
 
-                if current_bytes + ch_bytes <= chunk_size {
-                    buffer.push(ch as u8);
-                    current_bytes += ch_bytes;
+                        if current_bytes + len <= chunk_size {
+                            let mut buf = [0; 4];
+                            let bytes = ch.encode_utf8(&mut buf).as_bytes();
+                            buffer.extend_from_slice(bytes);
+                            current_bytes += len;
+                        }
+                    }
+                }
+                UnicodeEncoding::Utf16 => {
+                    while current_bytes < chunk_size {
+                        let char_index = rng.gen_range(0..chars_len);
+                        let ch = chars[char_index];
+
+                        // Each UTF-16 unit is 2 bytes
+                        let len = ch.len_utf16() * 2;
+
+                        if current_bytes + len <= chunk_size {
+                            let mut buf = [0; 2];
+                            let bytes = ch.encode_utf16(&mut buf);
+
+                            buffer.extend_from_slice(
+                                &bytes
+                                    .iter()
+                                    .flat_map(|b| b.to_le_bytes())
+                                    .collect::<Vec<_>>(),
+                            );
+
+                            current_bytes += len;
+                        }
+                    }
+                }
+                UnicodeEncoding::Utf32 => {
+                    while current_bytes < chunk_size {
+                        let char_index = rng.gen_range(0..chars_len);
+                        let ch = chars[char_index];
+
+                        const LEN: usize = 4;
+
+                        buffer.extend_from_slice(&(ch as u32).to_le_bytes());
+                        current_bytes += LEN;
+                    }
                 }
             }
 
             let mut writer = writer.lock().expect("Failed to lock writer");
-
             writer
                 .write_all(&buffer)
                 .expect("Failed to write to buffer");

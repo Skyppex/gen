@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, str::FromStr};
+use std::{fmt::Display, num::NonZeroUsize, str::FromStr};
 
 use clap::{error::ErrorKind, ArgGroup, Error, Parser, Subcommand};
 
@@ -67,7 +67,8 @@ pub enum Command {
     /// Warning: Your terminal emulator might have trouble rendering large output strings.
     #[command(verbatim_doc_comment)]
     Ascii {
-        /// Size of the output. Format: <value><unit>. Possible units: B, KB, MB, GB.
+        /// Size of the output. Format: <value><unit>.
+        /// Possible units: B, KB, MB, GB, KiB, MiB, GiB.
         size: ByteSize,
 
         /// Choose a specific character set.
@@ -96,7 +97,8 @@ pub enum Command {
     /// Warning: Your terminal emulator might have trouble rendering large output strings.
     #[command(verbatim_doc_comment)]
     Unicode {
-        /// Size of the output.
+        /// Size of the output. Format: <value><unit>.
+        /// Possible units: B, KB, MB, GB, KiB, MiB, GiB.
         size: ByteSize,
 
         /// Choose a specific encoding. Possible values: utf8, utf16, utf32.
@@ -260,7 +262,7 @@ impl FromStr for ByteUnit {
     }
 }
 
-#[derive(Debug, Clone, Parser)]
+#[derive(Debug, Clone, PartialEq, Eq, Parser)]
 pub enum UnicodeEncoding {
     Utf8,
     Utf16,
@@ -276,6 +278,16 @@ impl FromStr for UnicodeEncoding {
             "utf_16" | "utf-16" | "utf16" | "16" => Ok(UnicodeEncoding::Utf16),
             "utf_32" | "utf-32" | "utf32" | "32" => Ok(UnicodeEncoding::Utf32),
             _ => Err(Error::new(clap::error::ErrorKind::ValueValidation)),
+        }
+    }
+}
+
+impl Display for UnicodeEncoding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UnicodeEncoding::Utf8 => write!(f, "UTF-8"),
+            UnicodeEncoding::Utf16 => write!(f, "UTF-16"),
+            UnicodeEncoding::Utf32 => write!(f, "UTF-32"),
         }
     }
 }
