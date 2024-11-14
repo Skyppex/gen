@@ -91,6 +91,13 @@ pub enum Command {
         /// The number of threads to use.
         #[arg(short, long)]
         threads: Option<NonZeroUsize>,
+
+        /// The buffer size to use per thread.
+        /// The maximum memory allocation will be threads * buf-size.
+        /// Warning: The smaller the buffer size,
+        /// the slower the generation will be due to more frequent writes.
+        #[arg(short, long, verbatim_doc_comment)]
+        buf_size: Option<ByteSize>,
     },
 
     /// Generate a random Unicode string.
@@ -116,6 +123,13 @@ pub enum Command {
         /// The number of threads to use.
         #[arg(short, long)]
         threads: Option<NonZeroUsize>,
+
+        /// The buffer size to use per thread.
+        /// The maximum memory allocation will be threads * buf-size.
+        /// Warning: The smaller the buffer size,
+        /// the slower the generation will be due to more frequent writes.
+        #[arg(short, long, verbatim_doc_comment)]
+        buf_size: Option<ByteSize>,
     },
 }
 
