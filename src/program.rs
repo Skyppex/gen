@@ -136,11 +136,23 @@ fn generate_ascii<T: Write + Send + 'static>(
     buf_size: Option<ByteSize>,
     writer: Arc<Mutex<T>>,
 ) {
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
+    let buf_size = buf_size.map(|b| b.to_bytes() / num_threads);
+
+    const SIMUL_BYTES: usize = 8;
+
     if let Some(ref buf_size) = buf_size {
-        if buf_size.to_bytes() % 8 != 0 {
-            panic!("Buffer size must be divisible by 8");
+        if buf_size < &SIMUL_BYTES {
+            panic!(
+                "Buffer size after being divided by the number of threads ({}) must be {} or greater and divisible by {}",
+                num_threads,
+                SIMUL_BYTES,
+                SIMUL_BYTES
+            );
         }
     }
+
+    let buf_size = buf_size.map(|b| b / SIMUL_BYTES * SIMUL_BYTES);
 
     let ascii_chars: Vec<char> = if printable_only {
         (32..127).filter_map(std::char::from_u32).collect()
@@ -165,10 +177,7 @@ fn generate_ascii<T: Write + Send + 'static>(
         panic!("Charset cannot be empty");
     }
 
-    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
     let total_size = size.to_bytes();
-
-    const SIMUL_BYTES: usize = 8;
 
     let full_chunks = total_size / (num_threads * SIMUL_BYTES);
 
@@ -190,31 +199,19 @@ fn generate_ascii<T: Write + Send + 'static>(
 
     let mut handles = vec![];
 
-    println!("{num_threads}");
-
     for chunk_size in chunks {
         let writer = Arc::clone(&writer);
         let chars = Arc::clone(&chars);
-        let buf_size = Arc::clone(&buf_size)
-            .as_ref()
-            .clone()
-            .map(|b| b.to_bytes())
-            .unwrap_or(chunk_size * SIMUL_BYTES);
-
-        println!("buf: {buf_size}");
-        println!("chunk: {chunk_size}");
+        let byte_count = chunk_size * SIMUL_BYTES;
+        let buf_size = buf_size.unwrap_or(byte_count);
 
         let handle = thread::spawn(move || {
             let mut rng = rand::thread_rng();
             let mut buffer = Vec::with_capacity(buf_size);
-            let mut remaining = buf_size;
+            let rounds = byte_count / buf_size;
+            let remainder = byte_count % buf_size;
 
-            while remaining >= SIMUL_BYTES && remaining >= buf_size {
-                println!("Remaining: {remaining}");
-
-                let rng: &mut rand::prelude::ThreadRng = &mut rng;
-                let chars: &Arc<Vec<char>> = &chars;
-
+            for _ in 0..rounds {
                 for _ in 0..buf_size / SIMUL_BYTES {
                     let num = rng.gen::<u64>();
                     let char_indices = num.to_ne_bytes().map(|b| (b as usize) % chars_len);
@@ -224,30 +221,29 @@ fn generate_ascii<T: Write + Send + 'static>(
                     }
                 }
 
-                remaining -= buf_size;
-
                 write_from_buffer(&writer, &mut buffer);
             }
 
-            if remaining < SIMUL_BYTES {
+            if remainder < SIMUL_BYTES {
                 return;
             }
 
-            println!("Last remaining: {remaining}");
-            {
-                let rng: &mut rand::prelude::ThreadRng = &mut rng;
-                let buffer: &mut Vec<u8> = &mut buffer;
-                let chars: &Arc<Vec<char>> = &chars;
+            let remainder_simul = remainder / SIMUL_BYTES * SIMUL_BYTES;
 
-                for _ in 0..chunk_size {
-                    let num = rng.gen::<u64>();
-                    let char_indices = num.to_ne_bytes().map(|b| (b as usize) % chars_len);
+            for _ in 0..remainder_simul / SIMUL_BYTES {
+                let num = rng.gen::<u64>();
+                let char_indices = num.to_ne_bytes().map(|b| (b as usize) % chars_len);
 
-                    for char_index in char_indices {
-                        buffer.push(chars[char_index] as u8);
-                    }
+                for char_index in char_indices {
+                    buffer.push(chars[char_index] as u8);
                 }
-            };
+            }
+
+            for _ in 0..remainder - remainder_simul {
+                let char_index = rng.gen_range(0..chars_len);
+                buffer.push(chars[char_index] as u8);
+            }
+
             write_from_buffer(&writer, &mut buffer);
         });
 
@@ -277,19 +273,29 @@ fn generate_unicode<T: Write + Send + 'static>(
     buf_size: Option<ByteSize>,
     writer: Arc<Mutex<T>>,
 ) {
-    if let Some(ref buf_size) = buf_size {
-        if buf_size.to_bytes() % 8 != 0 {
-            panic!("Buffer size must be divisible by 8");
-        }
-    }
-
-    let total_size = size.to_bytes();
-
     let min_byte_size = match encoding {
         UnicodeEncoding::Utf8 => 1,
         UnicodeEncoding::Utf16 => 2,
         UnicodeEncoding::Utf32 => 4,
     };
+
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
+    let buf_size = buf_size.map(|b| b.to_bytes() / num_threads);
+
+    if let Some(ref buf_size) = buf_size {
+        if buf_size < &min_byte_size {
+            panic!(
+                "Buffer size after being divided by the number of threads ({}) must be {} or greater and divisible by {}",
+                num_threads,
+                min_byte_size,
+                min_byte_size
+            );
+        }
+    }
+
+    let buf_size = buf_size.map(|b| b / min_byte_size * min_byte_size);
+
+    let total_size = size.to_bytes();
 
     if total_size < min_byte_size {
         panic!(
@@ -320,8 +326,6 @@ fn generate_unicode<T: Write + Send + 'static>(
         panic!("Charset cannot be empty");
     }
 
-    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
-
     let base_size = total_size / (num_threads * min_byte_size);
     let remainder = (total_size / min_byte_size) % num_threads;
 
@@ -342,42 +346,38 @@ fn generate_unicode<T: Write + Send + 'static>(
         let writer = Arc::clone(&writer);
         let chars = Arc::clone(&chars);
         let encoding = Arc::clone(&encoding);
-        let buf_size = Arc::clone(&buf_size)
-            .as_ref()
-            .clone()
-            .map(|b| b.to_bytes())
-            .unwrap_or(chunk_size * min_byte_size);
+        let buf_size = buf_size.unwrap_or(chunk_size);
 
         let handle = thread::spawn(move || {
             let mut rng = rand::thread_rng();
             let mut buffer = Vec::with_capacity(buf_size);
-            let mut remaining = buf_size;
+            let rounds = chunk_size / buf_size;
+            let remainder = chunk_size % buf_size;
             let mut current_bytes = 0;
 
-            while remaining >= min_byte_size && remaining >= buf_size {
+            for _ in 0..rounds {
                 generate_random_unicode(
                     &encoding,
                     &mut current_bytes,
-                    chunk_size,
+                    buf_size,
                     &mut rng,
                     chars_len,
                     &chars,
                     &mut buffer,
                 );
 
-                remaining -= buf_size;
                 write_from_buffer(&writer, &mut buffer);
+                current_bytes = 0;
             }
 
-            if remaining < min_byte_size {
+            if remainder < min_byte_size {
                 return;
             }
 
-            println!("Last remaining: {remaining}");
             generate_random_unicode(
                 &encoding,
                 &mut current_bytes,
-                chunk_size,
+                remainder,
                 &mut rng,
                 chars_len,
                 &chars,
@@ -411,7 +411,6 @@ fn generate_random_ascii(
 
 #[inline(always)]
 fn write_from_buffer<T: Write>(writer: &Arc<Mutex<T>>, buffer: &mut Vec<u8>) {
-    println!("buf len: {}", buffer.len());
     let mut writer = writer.lock().expect("Failed to lock writer");
     writer.write_all(buffer).expect("Failed to write to buffer");
     buffer.clear();
