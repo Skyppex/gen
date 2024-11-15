@@ -98,6 +98,10 @@ pub enum Command {
         /// the slower the generation will be due to more frequent writes.
         #[arg(short, long, verbatim_doc_comment)]
         buf_size: Option<ByteSize>,
+
+        /// Show a progress bar.
+        #[arg(short, long, default_value = "false")]
+        progress: bool,
     },
 
     /// Generate a random Unicode string.
@@ -130,6 +134,10 @@ pub enum Command {
         /// the slower the generation will be due to more frequent writes.
         #[arg(short, long, verbatim_doc_comment)]
         buf_size: Option<ByteSize>,
+
+        /// Show a progress bar.
+        #[arg(short, long, default_value = "false")]
+        progress: bool,
     },
 }
 
@@ -235,6 +243,17 @@ impl ByteSize {
             ByteUnit::GB => self.value * 1000 * 1000 * 1000,
             ByteUnit::GiB => self.value * 1024 * 1024 * 1024,
         }
+    }
+
+    pub fn is_decimal_unit(&self) -> bool {
+        match self.unit {
+            ByteUnit::KB | ByteUnit::MB | ByteUnit::GB => true,
+            ByteUnit::B | ByteUnit::KiB | ByteUnit::MiB | ByteUnit::GiB => false,
+        }
+    }
+
+    pub fn is_binary_unit(&self) -> bool {
+        !self.is_decimal_unit()
     }
 }
 

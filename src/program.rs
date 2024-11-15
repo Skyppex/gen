@@ -8,6 +8,7 @@ use std::{
 };
 
 use crate::args::{ByteSize, Command, FloatRange, GenArgs, IntRange, UnicodeEncoding, UuidVersion};
+use indicatif::{ProgressBar, ProgressStyle};
 use rand::Rng;
 use random_string::{charsets, generate, generate_rng};
 use uuid::Uuid;
@@ -30,6 +31,7 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
             exclude_codes,
             threads,
             buf_size,
+            progress,
         } => generate_ascii(
             size,
             charset,
@@ -38,6 +40,7 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
             exclude_codes,
             threads,
             buf_size,
+            progress,
             writer,
         ),
         Command::Unicode {
@@ -47,7 +50,10 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
             exclude,
             threads,
             buf_size,
-        } => generate_unicode(size, encoding, charset, exclude, threads, buf_size, writer),
+            progress,
+        } => generate_unicode(
+            size, encoding, charset, exclude, threads, buf_size, progress, writer,
+        ),
     }
 }
 
@@ -126,6 +132,8 @@ fn generate_url<T: Write>(
     writer.flush().unwrap();
 }
 
+const SIMUL_BYTES: usize = 8;
+
 fn generate_ascii<T: Write + Send + 'static>(
     size: ByteSize,
     charset: Option<String>,
@@ -134,12 +142,11 @@ fn generate_ascii<T: Write + Send + 'static>(
     exclude_codes: Option<Vec<u8>>,
     threads: Option<NonZeroUsize>,
     buf_size: Option<ByteSize>,
+    progress: bool,
     writer: Arc<Mutex<T>>,
 ) {
     let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
     let buf_size = buf_size.map(|b| b.to_bytes() / num_threads);
-
-    const SIMUL_BYTES: usize = 8;
 
     if let Some(ref buf_size) = buf_size {
         if buf_size < &SIMUL_BYTES {
@@ -193,6 +200,15 @@ fn generate_ascii<T: Write + Send + 'static>(
         }
     }
 
+    let progress_bar = Arc::new(if progress {
+        Some(create_progress_bar(
+            total_size as u64,
+            size.is_binary_unit(),
+        ))
+    } else {
+        None
+    });
+
     let chars_len = chars.len();
     let chars = Arc::new(chars);
     let buf_size = Arc::new(buf_size);
@@ -201,6 +217,8 @@ fn generate_ascii<T: Write + Send + 'static>(
 
     for chunk_size in chunks {
         let writer = Arc::clone(&writer);
+        let progress_bar = Arc::clone(&progress_bar);
+
         let chars = Arc::clone(&chars);
         let byte_count = chunk_size * SIMUL_BYTES;
         let buf_size = buf_size.unwrap_or(byte_count);
@@ -212,14 +230,14 @@ fn generate_ascii<T: Write + Send + 'static>(
             let remainder = byte_count % buf_size;
 
             for _ in 0..rounds {
-                for _ in 0..buf_size / SIMUL_BYTES {
-                    let num = rng.gen::<u64>();
-                    let char_indices = num.to_ne_bytes().map(|b| (b as usize) % chars_len);
-
-                    for char_index in char_indices {
-                        buffer.push(chars[char_index] as u8);
-                    }
-                }
+                generate_random_ascii_8(
+                    buf_size / SIMUL_BYTES,
+                    &mut rng,
+                    chars_len,
+                    &mut buffer,
+                    &chars,
+                    &progress_bar,
+                );
 
                 write_from_buffer(&writer, &mut buffer);
             }
@@ -230,19 +248,23 @@ fn generate_ascii<T: Write + Send + 'static>(
 
             let remainder_simul = remainder / SIMUL_BYTES * SIMUL_BYTES;
 
-            for _ in 0..remainder_simul / SIMUL_BYTES {
-                let num = rng.gen::<u64>();
-                let char_indices = num.to_ne_bytes().map(|b| (b as usize) % chars_len);
+            generate_random_ascii_8(
+                remainder_simul / SIMUL_BYTES,
+                &mut rng,
+                chars_len,
+                &mut buffer,
+                &chars,
+                &progress_bar,
+            );
 
-                for char_index in char_indices {
-                    buffer.push(chars[char_index] as u8);
-                }
-            }
-
-            for _ in 0..remainder - remainder_simul {
-                let char_index = rng.gen_range(0..chars_len);
-                buffer.push(chars[char_index] as u8);
-            }
+            generate_random_ascii(
+                remainder - remainder_simul,
+                rng,
+                chars_len,
+                &mut buffer,
+                chars,
+                &progress_bar,
+            );
 
             write_from_buffer(&writer, &mut buffer);
         });
@@ -259,7 +281,16 @@ fn generate_ascii<T: Write + Send + 'static>(
     if leftover_bytes > 0 {
         let rng = rand::thread_rng();
         let mut buffer = Vec::with_capacity(leftover_bytes);
-        generate_random_ascii(leftover_bytes, rng, chars_len, &mut buffer, chars);
+
+        generate_random_ascii(
+            leftover_bytes,
+            rng,
+            chars_len,
+            &mut buffer,
+            chars,
+            &progress_bar,
+        );
+
         write_from_buffer(&writer, &mut buffer);
     }
 }
@@ -271,6 +302,7 @@ fn generate_unicode<T: Write + Send + 'static>(
     exclude: Option<String>,
     threads: Option<NonZeroUsize>,
     buf_size: Option<ByteSize>,
+    progress: bool,
     writer: Arc<Mutex<T>>,
 ) {
     let min_byte_size = match encoding {
@@ -335,6 +367,15 @@ fn generate_unicode<T: Write + Send + 'static>(
         *chunk += min_byte_size;
     }
 
+    let progress_bar = Arc::new(if progress {
+        Some(create_progress_bar(
+            total_size as u64,
+            size.is_binary_unit(),
+        ))
+    } else {
+        None
+    });
+
     let chars_len = chars.len();
     let chars = Arc::new(chars);
     let encoding = Arc::new(encoding);
@@ -344,6 +385,8 @@ fn generate_unicode<T: Write + Send + 'static>(
 
     for chunk_size in chunks {
         let writer = Arc::clone(&writer);
+        let progress_bar = Arc::clone(&progress_bar);
+
         let chars = Arc::clone(&chars);
         let encoding = Arc::clone(&encoding);
         let buf_size = buf_size.unwrap_or(chunk_size);
@@ -364,6 +407,7 @@ fn generate_unicode<T: Write + Send + 'static>(
                     chars_len,
                     &chars,
                     &mut buffer,
+                    &progress_bar,
                 );
 
                 write_from_buffer(&writer, &mut buffer);
@@ -382,6 +426,7 @@ fn generate_unicode<T: Write + Send + 'static>(
                 chars_len,
                 &chars,
                 &mut buffer,
+                &progress_bar,
             );
 
             write_from_buffer(&writer, &mut buffer);
@@ -396,16 +441,44 @@ fn generate_unicode<T: Write + Send + 'static>(
 }
 
 #[inline(always)]
+fn generate_random_ascii_8(
+    longs: usize,
+    rng: &mut rand::prelude::ThreadRng,
+    chars_len: usize,
+    buffer: &mut Vec<u8>,
+    chars: &Arc<Vec<char>>,
+    progress_bar: &Arc<Option<ProgressBar>>,
+) {
+    for _ in 0..longs {
+        let num = rng.gen::<u64>();
+        let char_indices = num.to_ne_bytes().map(|b| (b as usize) % chars_len);
+
+        for char_index in char_indices {
+            buffer.push(chars[char_index] as u8);
+        }
+
+        if let Some(progress_bar) = progress_bar.as_ref().clone() {
+            progress_bar.inc(SIMUL_BYTES as u64);
+        }
+    }
+}
+
+#[inline(always)]
 fn generate_random_ascii(
-    leftover_bytes: usize,
+    bytes: usize,
     mut rng: rand::prelude::ThreadRng,
     chars_len: usize,
     buffer: &mut Vec<u8>,
     chars: Arc<Vec<char>>,
+    progress_bar: &Arc<Option<ProgressBar>>,
 ) {
-    for _ in 0..leftover_bytes {
+    for _ in 0..bytes {
         let num = rng.gen_range(0..chars_len);
         buffer.push(chars[num] as u8);
+
+        if let Some(progress_bar) = progress_bar.as_ref().clone() {
+            progress_bar.inc(SIMUL_BYTES as u64);
+        }
     }
 }
 
@@ -425,6 +498,7 @@ fn generate_random_unicode(
     chars_len: usize,
     chars: &Arc<Vec<char>>,
     buffer: &mut Vec<u8>,
+    progress_bar: &Arc<Option<ProgressBar>>,
 ) {
     match **encoding {
         UnicodeEncoding::Utf8 => {
@@ -439,6 +513,10 @@ fn generate_random_unicode(
                     let bytes = ch.encode_utf8(&mut buf).as_bytes();
                     buffer.extend_from_slice(bytes);
                     *current_bytes += len;
+
+                    if let Some(progress_bar) = progress_bar.as_ref().clone() {
+                        progress_bar.inc(len as u64);
+                    }
                 }
             }
         }
@@ -462,6 +540,10 @@ fn generate_random_unicode(
                     );
 
                     *current_bytes += len;
+
+                    if let Some(progress_bar) = progress_bar.as_ref().clone() {
+                        progress_bar.inc(len as u64);
+                    }
                 }
             }
         }
@@ -474,6 +556,10 @@ fn generate_random_unicode(
 
                 buffer.extend_from_slice(&(ch as u32).to_le_bytes());
                 *current_bytes += LEN;
+
+                if let Some(progress_bar) = progress_bar.as_ref().clone() {
+                    progress_bar.inc(LEN as u64);
+                }
             }
         }
     }
@@ -485,6 +571,30 @@ fn gen_str(length: Option<usize>) -> String {
         Some(l) => generate(l, charsets::ALPHA_LOWER),
         None => generate_rng(5..15, charsets::ALPHA_LOWER.chars().collect::<Vec<_>>()),
     }
+}
+
+fn create_progress_bar(total_size: u64, is_binary_bytes: bool) -> ProgressBar {
+    let progress_bar = ProgressBar::new(total_size);
+
+    let style = ProgressStyle::default_bar();
+
+    let style = if is_binary_bytes {
+        style
+            .template(
+                "{spinner:.green} {percent}% {bar:40.cyan/blue} {bytes}/{total_bytes} ({eta})",
+            )
+            .unwrap()
+    } else {
+        style
+            .template(
+                "{spinner:.green} {percent}% {bar:40.cyan/blue} {decimal_bytes}/{decimal_total_bytes} ({eta})"
+            )
+            .unwrap()
+    };
+
+    progress_bar.set_style(style);
+
+    progress_bar
 }
 
 #[cfg(test)]
