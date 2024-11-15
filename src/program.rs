@@ -483,7 +483,7 @@ fn generate_random_unicode(
 fn gen_str(length: Option<usize>) -> String {
     match length {
         Some(l) => generate(l, charsets::ALPHA_LOWER),
-        None => generate_rng(5..15, charsets::ALPHA_LOWER),
+        None => generate_rng(5..15, charsets::ALPHA_LOWER.chars().collect::<Vec<_>>()),
     }
 }
 
