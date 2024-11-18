@@ -569,7 +569,7 @@ fn generate_random_unicode(
 fn gen_str(length: Option<usize>) -> String {
     match length {
         Some(l) => generate(l, charsets::ALPHA_LOWER),
-        None => generate_rng(5..15, charsets::ALPHA_LOWER.chars().collect::<Vec<_>>()),
+        None => generate_rng(5..15, charsets::ALPHA_LOWER),
     }
 }
 
@@ -581,13 +581,13 @@ fn create_progress_bar(total_size: u64, is_binary_bytes: bool) -> ProgressBar {
     let style = if is_binary_bytes {
         style
             .template(
-                "{spinner:.green} {percent}% {bar:40.cyan/blue} {bytes}/{total_bytes} ({eta})",
+                "{percent}% {bar:40.cyan/blue} {bytes_per_sec:.green} {bytes:.yellow}/{total_bytes:.magenta} ({eta:.cyan})",
             )
             .unwrap()
     } else {
         style
             .template(
-                "{spinner:.green} {percent}% {bar:40.cyan/blue} {decimal_bytes}/{decimal_total_bytes} ({eta})"
+                "{percent}% {bar:40.cyan/blue} {decimal_bytes_per_sec:.green} {decimal_bytes:.yellow}/{decimal_total_bytes:.magenta} ({eta:.cyan})"
             )
             .unwrap()
     };
