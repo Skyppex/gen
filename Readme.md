@@ -1,43 +1,34 @@
-# rust-cli-tool-template
+# gen
 
-This repo serves as a template for CLI tools i create. Some boilerplate is set up in order to get arguments passed by the user.
+Generate random data on the commandline
 
-The `source` and `destination` arguments are for passing input/output through a file instead of `stdin` or `stdout`. These are setup to support relative paths by default for ease of use.
+## Installation
 
-## Using the template
+Currently you have to compile locally.
 
-### Git CLI
+- Clone the repo
+  `git clone https://github.com/Skyppex/gen.git`
+  `gh repo clone Skyppex/gen`
+- Build using cargo
+  `cargo build --release`
 
-Using the Git CLI will create the repo locally before making a publically accessable repo on, for example, GitHub.
+## Usage
 
-Run these commands to create a new repo with this tempalte:
+Do `gen --help` to see command documentation. Also works for subcommands
 
-```sh
-git clone https://github.com/Skyppex/rust-cli-tool-template.git reponame
-cd reponame
-rm -rf .git
-git init
-```
+The root command has a `--destination` flag which takes a path to a file.
+Use this to output the random data to that file instead of `stdout`.
+This is useful especially for the `ascii` and `unicode` subcommands as they can
+bog down your terminal significantly when generating excessive amounts of data.
 
-This will clone the repo into a folder with the reponame you choose,
-cd into it,
-then reset git by recreating the `.git` folder.
+### Subcommands
 
-### GitHub CLI
+- `int`: Generate a random integer within a range.
+- `float`: Generate a random floating-point number within a range.
+- `uuid`: Generate a random uuid.
+- `ascii`: Generate random ascii characters.
+- `unicode`: Generate random unicode characters.
 
-Using the GitHub CLI you will create the new repo on GitHub which then has to be cloned using git.
+## Contributing
 
-Run these commands to create a new repo with this template:
-
-```sh
-gh repo create reponame --public --template Skyppex/rust-cli-tool-template --clone
-cd reponame
-```
-
-Run `gh repo create -h` to see some additional options to pass. Some useful ones are: `--add-readme`, `--description(-d): string`, `--gitignore(-g): string`. There are many more options to pick from :D
-
-### Make changes
-
-Change this readme file to describe your tool rather than the template.
-
-Get coding!
+Issues and PRs are welcome!

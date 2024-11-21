@@ -2,7 +2,7 @@ use std::{fmt::Display, num::NonZeroUsize, str::FromStr};
 
 use clap::{error::ErrorKind, ArgGroup, Error, Parser, Subcommand};
 
-/// Write a concise description of the command here.
+/// Generate random data.
 #[derive(Debug, Clone, Parser)]
 #[command(version, author, about)]
 // Only for the ascii subcommand. It doesn't work when i but this line on the enum variant itself
