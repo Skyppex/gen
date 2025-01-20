@@ -94,7 +94,7 @@ fn generate_int<T: Write + Send + 'static>(
     writer: Arc<Mutex<T>>,
 ) {
     let min = range.clone().map_or(0, |r| r.min);
-    let max = range.map_or(100, |r| r.max);
+    let max = range.map_or(99, |r| r.max);
 
     let amount = amount.map_or(1, |a| a.get());
     let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);

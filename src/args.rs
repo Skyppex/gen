@@ -19,14 +19,14 @@ pub struct GenArgs {
 #[command(verbatim_doc_comment)]
 pub enum Command {
     /// Generate a random integer.
-    /// Use conventional range notation (e.g. 1..100).
+    /// Use conventional range notation (e.g. 0..99).
     /// The range is inclusive.
-    /// Default: 0..100.
+    /// Default: 0..99.
     #[command(verbatim_doc_comment)]
     Int {
-        /// Use conventional range notation (e.g. 1..100).
+        /// Use conventional range notation (e.g. 0..99).
         /// The range is inclusive.
-        /// Default: 0..100.
+        /// Default: 0..99.
         range: Option<IntRange>,
 
         /// The number of integers to generate.
@@ -51,12 +51,12 @@ pub enum Command {
     },
 
     /// Generate a random floating-point number.
-    /// Use conventional range notation (e.g. 1.0..100.0).
+    /// Use conventional range notation (e.g. 0.0..1.0).
     /// The range is inclusive.
     /// Default: 0.0..1.0.
     #[command(verbatim_doc_comment)]
     Float {
-        /// Use conventional range notation (e.g. 1.0..100.0).
+        /// Use conventional range notation (e.g. 0.0..1.0).
         /// The range is inclusive.
         /// Default: 0.0..1.0.
         range: Option<FloatRange>,
