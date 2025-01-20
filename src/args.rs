@@ -23,14 +23,64 @@ pub enum Command {
     /// The range is inclusive.
     /// Default: 0..100.
     #[command(verbatim_doc_comment)]
-    Int { range: Option<IntRange> },
+    Int {
+        /// Use conventional range notation (e.g. 1..100).
+        /// The range is inclusive.
+        /// Default: 0..100.
+        range: Option<IntRange>,
+
+        /// The number of integers to generate.
+        /// Each integer will be on a new line.
+        #[arg(short = 'n', long)]
+        amount: Option<Size>,
+
+        /// The number of threads to use.
+        #[arg(short, long)]
+        threads: Option<NonZeroUsize>,
+
+        /// The length of the buffer to use per thread. Holds 64 bit integers.
+        /// The maximum memory allocation will be threads * buf-len.
+        /// Warning: The smaller the buffer length,
+        /// the slower the generation will be due to more frequent writes.
+        #[arg(short, long, verbatim_doc_comment)]
+        buf_len: Option<Size>,
+
+        /// Show a progress bar.
+        #[arg(short, long, default_value = "false")]
+        progress: bool,
+    },
 
     /// Generate a random floating-point number.
     /// Use conventional range notation (e.g. 1.0..100.0).
     /// The range is inclusive.
     /// Default: 0.0..1.0.
     #[command(verbatim_doc_comment)]
-    Float { range: Option<FloatRange> },
+    Float {
+        /// Use conventional range notation (e.g. 1.0..100.0).
+        /// The range is inclusive.
+        /// Default: 0.0..1.0.
+        range: Option<FloatRange>,
+
+        /// The number of floats to generate.
+        /// Each float will be on a new line.
+        #[arg(short = 'n', long)]
+        amount: Option<Size>,
+
+        /// The number of threads to use.
+        #[arg(short, long)]
+        threads: Option<NonZeroUsize>,
+
+        /// The length of the buffer to use per thread. Holds 64 bit floats.
+        /// The maximum memory allocation will be threads * buf-len.
+        /// Warning: The smaller the buffer length,
+        /// the slower the generation will be due to more frequent writes.
+        #[arg(short, long, verbatim_doc_comment)]
+        buf_len: Option<Size>,
+
+        /// Show a progress bar.
+        #[arg(short, long, default_value = "false")]
+        progress: bool,
+    },
 
     /// Generate a random UUID.
     /// Optionally specify the version.
@@ -42,6 +92,26 @@ pub enum Command {
         /// Default: v4.
         #[arg(verbatim_doc_comment)]
         version: Option<UuidVersion>,
+
+        /// The number of uuids to generate.
+        /// Each uuid will be on a new line.
+        #[arg(short = 'n', long)]
+        amount: Option<Size>,
+
+        /// The number of threads to use.
+        #[arg(short, long)]
+        threads: Option<NonZeroUsize>,
+
+        /// The length of the buffer to use per thread. Holds 64 bit floats.
+        /// The maximum memory allocation will be threads * buf-len.
+        /// Warning: The smaller the buffer length,
+        /// the slower the generation will be due to more frequent writes.
+        #[arg(short, long, verbatim_doc_comment)]
+        buf_len: Option<Size>,
+
+        /// Show a progress bar.
+        #[arg(short, long, default_value = "false")]
+        progress: bool,
     },
 
     /// Generate a random URL.
@@ -51,13 +121,33 @@ pub enum Command {
         #[arg(short, long)]
         length: Option<usize>,
 
-        /// The number of path segments.
-        #[arg(short, long)]
-        path: Option<Option<u8>>,
+        /// The number of resource segments.
+        #[arg(short = 'r', long)]
+        resource: Option<Option<u8>>,
 
         /// Include a query string.
         #[arg(short, long)]
         query: bool,
+
+        /// The number of urls to generate.
+        /// Each url will be on a new line.
+        #[arg(short = 'n', long)]
+        amount: Option<Size>,
+
+        /// The number of threads to use.
+        #[arg(short, long)]
+        threads: Option<NonZeroUsize>,
+
+        /// The length of the buffer to use per thread. Holds 64 bit floats.
+        /// The maximum memory allocation will be threads * buf-len.
+        /// Warning: The smaller the buffer length,
+        /// the slower the generation will be due to more frequent writes.
+        #[arg(short, long, verbatim_doc_comment)]
+        buf_len: Option<Size>,
+
+        /// Show a progress bar.
+        #[arg(short, long, default_value = "false")]
+        progress: bool,
     },
 
     /// Generate a random ASCII string.
@@ -92,7 +182,7 @@ pub enum Command {
         #[arg(short, long)]
         threads: Option<NonZeroUsize>,
 
-        /// The buffer size to use per thread.
+        /// The buffer size to use. Divided between threads.
         /// The maximum memory allocation will be threads * buf-size.
         /// Warning: The smaller the buffer size,
         /// the slower the generation will be due to more frequent writes.
@@ -128,7 +218,7 @@ pub enum Command {
         #[arg(short, long)]
         threads: Option<NonZeroUsize>,
 
-        /// The buffer size to use per thread.
+        /// The buffer size to use. Divided between threads.
         /// The maximum memory allocation will be threads * buf-size.
         /// Warning: The smaller the buffer size,
         /// the slower the generation will be due to more frequent writes.
@@ -143,8 +233,8 @@ pub enum Command {
 
 #[derive(Debug, Clone, Parser)]
 pub struct IntRange {
-    pub min: i32,
-    pub max: i32,
+    pub min: i64,
+    pub max: i64,
 }
 
 impl FromStr for IntRange {
@@ -170,8 +260,8 @@ impl FromStr for IntRange {
 
 #[derive(Debug, Clone, Parser)]
 pub struct FloatRange {
-    pub min: f32,
-    pub max: f32,
+    pub min: f64,
+    pub max: f64,
 }
 
 impl FromStr for FloatRange {
@@ -291,6 +381,76 @@ impl FromStr for ByteUnit {
             "mib" | "MiB" => Ok(ByteUnit::MiB),
             "gb" | "gB" | "GB" => Ok(ByteUnit::GB),
             "gib" | "GiB" => Ok(ByteUnit::GiB),
+            _ => Err(Error::new(clap::error::ErrorKind::ValueValidation)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Parser)]
+pub struct Size {
+    pub value: usize,
+    pub unit: Unit,
+}
+
+#[derive(Debug, Clone, Copy, Parser)]
+pub enum Unit {
+    None,
+    K,
+    M,
+    B,
+    T,
+}
+
+impl Size {
+    pub fn get(&self) -> usize {
+        match self.unit {
+            Unit::None => self.value,
+            Unit::K => self.value * 1000,
+            Unit::M => self.value * 1000 * 1000,
+            Unit::B => self.value * 1000 * 1000 * 1000,
+            Unit::T => self.value * 1000 * 1000 * 1000 * 1000,
+        }
+    }
+}
+
+impl FromStr for Size {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut string_value = String::new();
+
+        for c in s.chars() {
+            if c.is_ascii_digit() {
+                string_value.push(c);
+            } else {
+                break;
+            }
+        }
+
+        let value = string_value
+            .parse()
+            .map_err(|_| Error::new(clap::error::ErrorKind::ValueValidation))?;
+
+        if value == 0 {
+            return Err(Error::new(clap::error::ErrorKind::InvalidValue));
+        }
+
+        Ok(Size {
+            value,
+            unit: s[string_value.len()..].parse()?,
+        })
+    }
+}
+
+impl FromStr for Unit {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "" => Ok(Unit::None),
+            "k" | "K" => Ok(Unit::K),
+            "m" | "M" => Ok(Unit::M),
+            "b" | "B" => Ok(Unit::B),
+            "t" | "T" => Ok(Unit::T),
             _ => Err(Error::new(clap::error::ErrorKind::ValueValidation)),
         }
     }

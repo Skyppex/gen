@@ -7,7 +7,9 @@ use std::{
     thread,
 };
 
-use crate::args::{ByteSize, Command, FloatRange, GenArgs, IntRange, UnicodeEncoding, UuidVersion};
+use crate::args::{
+    ByteSize, Command, FloatRange, GenArgs, IntRange, Size, UnicodeEncoding, UuidVersion,
+};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::Rng;
 use random_string::{charsets, generate, generate_rng};
@@ -15,14 +17,38 @@ use uuid::Uuid;
 
 pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
     match args.commands {
-        Command::Int { range } => generate_int(range, writer),
-        Command::Float { range } => generate_float(range, writer),
-        Command::Uuid { version } => generate_uuid(version, writer),
+        Command::Int {
+            range,
+            amount,
+            threads,
+            buf_len,
+            progress,
+        } => generate_int(range, amount, threads, buf_len, progress, writer),
+        Command::Float {
+            range,
+            amount,
+            threads,
+            buf_len,
+            progress,
+        } => generate_float(range, amount, threads, buf_len, progress, writer),
+        Command::Uuid {
+            version,
+            amount,
+            threads,
+            buf_len,
+            progress,
+        } => generate_uuid(version, amount, threads, buf_len, progress, writer),
         Command::Url {
             length,
-            path,
+            resource: path,
             query,
-        } => generate_url(length, path, query, writer),
+            amount,
+            threads,
+            buf_len,
+            progress,
+        } => generate_url(
+            length, path, query, amount, threads, buf_len, progress, writer,
+        ),
         Command::Ascii {
             size,
             charset,
@@ -57,82 +83,389 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
     }
 }
 
-fn generate_int<T: Write>(range: Option<IntRange>, writer: Arc<Mutex<T>>) {
-    let mut writer = writer.lock().unwrap();
-    let mut rng = rand::thread_rng();
+const SIMUL_BYTES: usize = 8;
+
+fn generate_int<T: Write + Send + 'static>(
+    range: Option<IntRange>,
+    amount: Option<Size>,
+    threads: Option<NonZeroUsize>,
+    buf_len: Option<Size>,
+    progress: bool,
+    writer: Arc<Mutex<T>>,
+) {
     let min = range.clone().map_or(0, |r| r.min);
     let max = range.map_or(100, |r| r.max);
-    write!(writer, "{}", rng.gen_range(min..=max)).expect("Failed to write to output");
-    writer.flush().unwrap();
+
+    let amount = amount.map_or(1, |a| a.get());
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
+    let total_size = amount;
+    let full_chunks = total_size / num_threads;
+    let remaining_bytes = total_size % num_threads;
+
+    let mut chunks = vec![full_chunks; num_threads];
+
+    if remaining_bytes > 0 {
+        let additional_chunks = remaining_bytes;
+
+        for i in 0..additional_chunks {
+            chunks[i % num_threads] += 1;
+        }
+    }
+
+    // Remove one from the first chunk to account
+    // for the last write without a newline
+    chunks[0] -= 1;
+
+    let progress_bar = Arc::new(if progress {
+        Some(create_progress_bar_amount(amount as u64))
+    } else {
+        None
+    });
+
+    let buf_len = Arc::new(buf_len);
+
+    let mut handles = vec![];
+
+    for chunk_size in chunks {
+        if chunk_size == 0 {
+            continue;
+        }
+
+        let writer = Arc::clone(&writer);
+        let progress_bar = Arc::clone(&progress_bar);
+
+        let buf_len = buf_len.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
+            chunk_size / num_threads
+        } else {
+            chunk_size
+        });
+
+        let handle = thread::spawn(move || {
+            let mut rng = rand::thread_rng();
+            let mut buffer = Vec::with_capacity(buf_len);
+            let rounds = chunk_size / buf_len;
+            let remainder = chunk_size % buf_len;
+
+            let mut gen_func = || rng.gen_range(min..=max);
+
+            for _ in 0..rounds {
+                generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                writeln(&writer, &mut buffer);
+            }
+
+            if remainder == 0 {
+                return;
+            }
+
+            generate_random_value(remainder, &mut gen_func, &mut buffer, &progress_bar);
+            writeln(&writer, &mut buffer);
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
+
+    let mut rng = rand::thread_rng();
+
+    write(&writer, rng.gen_range(min..=max).to_string().as_bytes());
 }
 
-fn generate_float<T: Write>(range: Option<FloatRange>, writer: Arc<Mutex<T>>) {
-    let mut writer = writer.lock().unwrap();
-    let mut rng = rand::thread_rng();
+fn generate_float<T: Write + Send + 'static>(
+    range: Option<FloatRange>,
+    amount: Option<Size>,
+    threads: Option<NonZeroUsize>,
+    buf_len: Option<Size>,
+    progress: bool,
+    writer: Arc<Mutex<T>>,
+) {
     let min = range.clone().map_or(0.0, |r| r.min);
     let max = range.map_or(1.0, |r| r.max);
-    write!(writer, "{}", rng.gen_range(min..=max)).expect("Failed to write to output");
-    writer.flush().unwrap();
-}
 
-fn generate_uuid<T: Write>(version: Option<UuidVersion>, writer: Arc<Mutex<T>>) {
-    let mut writer = writer.lock().unwrap();
-    write!(
-        writer,
-        "{}",
-        match version {
-            Some(UuidVersion::Empty) => Uuid::nil().to_string(),
-            Some(UuidVersion::Max) => Uuid::max().to_string(),
-            Some(UuidVersion::V4) | None => Uuid::new_v4().to_string(),
+    let amount = amount.map_or(1, |a| a.get());
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
+    let total_size = amount;
+    let full_chunks = total_size / num_threads;
+    let remaining_bytes = total_size % num_threads;
+
+    let mut chunks = vec![full_chunks; num_threads];
+
+    if remaining_bytes > 0 {
+        let additional_chunks = remaining_bytes;
+
+        for i in 0..additional_chunks {
+            chunks[i % num_threads] += 1;
         }
-    )
-    .expect("Failed to write to output");
+    }
 
-    writer.flush().unwrap();
+    // Remove one from the first chunk to account
+    // for the last write without a newline
+    chunks[0] -= 1;
+
+    let progress_bar = Arc::new(if progress {
+        Some(create_progress_bar_amount(amount as u64))
+    } else {
+        None
+    });
+
+    let buf_len = Arc::new(buf_len);
+
+    let mut handles = vec![];
+
+    for chunk_size in chunks {
+        if chunk_size == 0 {
+            continue;
+        }
+
+        let writer = Arc::clone(&writer);
+        let progress_bar = Arc::clone(&progress_bar);
+
+        let buf_len = buf_len.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
+            chunk_size / num_threads
+        } else {
+            chunk_size
+        });
+
+        let handle = thread::spawn(move || {
+            let mut rng = rand::thread_rng();
+            let mut buffer = Vec::with_capacity(buf_len);
+            let rounds = chunk_size / buf_len;
+            let remainder = chunk_size % buf_len;
+
+            let mut gen_func = || rng.gen_range(min..=max);
+
+            for _ in 0..rounds {
+                generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                writeln(&writer, &mut buffer);
+            }
+
+            if remainder == 0 {
+                return;
+            }
+
+            generate_random_value(remainder, &mut gen_func, &mut buffer, &progress_bar);
+            writeln(&writer, &mut buffer);
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
+
+    let mut rng = rand::thread_rng();
+
+    write(&writer, rng.gen_range(min..=max).to_string().as_bytes());
 }
 
-fn generate_url<T: Write>(
+fn generate_uuid<T: Write + Send + 'static>(
+    version: Option<UuidVersion>,
+    amount: Option<Size>,
+    threads: Option<NonZeroUsize>,
+    buf_len: Option<Size>,
+    progress: bool,
+    writer: Arc<Mutex<T>>,
+) {
+    let amount = amount.map_or(1, |a| a.get());
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
+    let total_size = amount;
+    let full_chunks = total_size / num_threads;
+    let remaining_bytes = total_size % num_threads;
+
+    let mut chunks = vec![full_chunks; num_threads];
+
+    if remaining_bytes > 0 {
+        let additional_chunks = remaining_bytes;
+
+        for i in 0..additional_chunks {
+            chunks[i % num_threads] += 1;
+        }
+    }
+
+    // Remove one from the first chunk to account
+    // for the last write without a newline
+    chunks[0] -= 1;
+
+    let progress_bar = Arc::new(if progress {
+        Some(create_progress_bar_amount(amount as u64))
+    } else {
+        None
+    });
+
+    let buf_len = Arc::new(buf_len);
+
+    let mut gen_func = match version {
+        Some(UuidVersion::Empty) => || Uuid::nil().to_string(),
+        Some(UuidVersion::Max) => || Uuid::max().to_string(),
+        Some(UuidVersion::V4) | None => || Uuid::new_v4().to_string(),
+    };
+
+    let mut handles = vec![];
+
+    for chunk_size in chunks {
+        if chunk_size == 0 {
+            continue;
+        }
+
+        let writer = Arc::clone(&writer);
+        let progress_bar = Arc::clone(&progress_bar);
+
+        let buf_len = buf_len.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
+            chunk_size / num_threads
+        } else {
+            chunk_size
+        });
+
+        let handle = thread::spawn(move || {
+            let mut buffer = Vec::with_capacity(buf_len);
+            let rounds = chunk_size / buf_len;
+            let remainder = chunk_size % buf_len;
+
+            for _ in 0..rounds {
+                generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                writeln(&writer, &mut buffer);
+            }
+
+            if remainder == 0 {
+                return;
+            }
+
+            generate_random_value(remainder, &mut gen_func, &mut buffer, &progress_bar);
+            writeln(&writer, &mut buffer);
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
+
+    write(&writer, gen_func().as_bytes());
+}
+
+fn generate_url<T: Write + Send + 'static>(
     length: Option<usize>,
     path: Option<Option<u8>>,
     query: bool,
+    amount: Option<Size>,
+    threads: Option<NonZeroUsize>,
+    buf_len: Option<Size>,
+    progress: bool,
     writer: Arc<Mutex<T>>,
 ) {
-    let mut writer = writer.lock().unwrap();
-    let protocol = "https".to_owned();
-    let domain = gen_str(length) + "." + &gen_str(Some(3));
-    let paths = if let Some(p) = path {
-        let mut paths = Vec::new();
+    let amount = amount.map_or(1, |a| a.get());
+    let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
+    let total_size = amount;
+    let full_chunks = total_size / num_threads;
+    let remaining_bytes = total_size % num_threads;
 
-        for _ in 0..(p.unwrap_or(1)) {
-            paths.push(gen_str(length));
-        }
+    let mut chunks = vec![full_chunks; num_threads];
 
-        Some(paths)
-    } else {
-        None
-    };
+    if remaining_bytes > 0 {
+        let additional_chunks = remaining_bytes;
 
-    match (paths, query) {
-        (None, false) => write!(writer, "{}://{}", protocol, domain),
-        (Some(p), false) => write!(writer, "{}://{}/{}", protocol, domain, p.join("/")),
-        (None, true) => write!(writer, "{}://{}/?{}", protocol, domain, gen_str(length)),
-        (Some(p), true) => {
-            write!(
-                writer,
-                "{}://{}/{}?{}",
-                protocol,
-                domain,
-                p.join("/"),
-                gen_str(length)
-            )
+        for i in 0..additional_chunks {
+            chunks[i % num_threads] += 1;
         }
     }
-    .expect("Failed to write to output");
 
-    writer.flush().unwrap();
+    // Remove one from the first chunk to account
+    // for the last write without a newline
+    chunks[0] -= 1;
+
+    let progress_bar = Arc::new(if progress {
+        Some(create_progress_bar_amount(amount as u64))
+    } else {
+        None
+    });
+
+    let buf_len = Arc::new(buf_len);
+
+    let mut gen_func = move || {
+        let protocol = "https".to_owned();
+
+        let domain = gen_str(length) + "." + &gen_str(Some(3));
+        let paths = if let Some(p) = path {
+            let mut paths = Vec::new();
+
+            for _ in 0..(p.unwrap_or(1)) {
+                paths.push(gen_str(length));
+            }
+
+            Some(paths)
+        } else {
+            None
+        };
+
+        match (paths, query) {
+            (None, false) => {
+                format!("{}://{}", protocol, domain)
+            }
+            (Some(p), false) => {
+                format!("{}://{}/{}", protocol, domain, p.join("/"))
+            }
+            (None, true) => {
+                format!("{}://{}/?{}", protocol, domain, gen_str(length))
+            }
+            (Some(p), true) => {
+                format!(
+                    "{}://{}/{}?{}",
+                    protocol,
+                    domain,
+                    p.join("/"),
+                    gen_str(length)
+                )
+            }
+        }
+    };
+
+    let mut handles = vec![];
+
+    for chunk_size in chunks {
+        if chunk_size == 0 {
+            continue;
+        }
+
+        let writer = Arc::clone(&writer);
+        let progress_bar = Arc::clone(&progress_bar);
+
+        let buf_len = buf_len.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
+            chunk_size / num_threads
+        } else {
+            chunk_size
+        });
+
+        let handle = thread::spawn(move || {
+            let mut buffer = Vec::with_capacity(buf_len);
+            let rounds = chunk_size / buf_len;
+            let remainder = chunk_size % buf_len;
+
+            for _ in 0..rounds {
+                generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                writeln(&writer, &mut buffer);
+            }
+
+            if remainder == 0 {
+                return;
+            }
+
+            generate_random_value(remainder, &mut gen_func, &mut buffer, &progress_bar);
+            writeln(&writer, &mut buffer);
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
+
+    write(&writer, gen_func().as_bytes());
 }
-
-const SIMUL_BYTES: usize = 8;
 
 fn generate_ascii<T: Write + Send + 'static>(
     size: ByteSize,
@@ -449,6 +782,23 @@ fn generate_unicode<T: Write + Send + 'static>(
 }
 
 #[inline(always)]
+fn generate_random_value<T, F: FnMut() -> T>(
+    amount: usize,
+    gen_func: &mut F,
+    buffer: &mut Vec<T>,
+    progress_bar: &Arc<Option<ProgressBar>>,
+) {
+    for _ in 0..amount {
+        let value = gen_func();
+        buffer.push(value);
+
+        if let Some(progress_bar) = progress_bar.as_ref().clone() {
+            progress_bar.inc(1);
+        }
+    }
+}
+
+#[inline(always)]
 fn generate_random_ascii_8(
     longs: usize,
     rng: &mut rand::prelude::ThreadRng,
@@ -488,6 +838,36 @@ fn generate_random_ascii(
             progress_bar.inc(SIMUL_BYTES as u64);
         }
     }
+}
+
+#[inline(always)]
+fn write<T: Write>(writer: &Arc<Mutex<T>>, content: &[u8]) {
+    let mut writer = writer.lock().expect("Failed to lock writer");
+    writer
+        .write_all(content)
+        .expect("Failed to write to buffer");
+}
+
+#[inline(always)]
+fn writeln<T: Write, U: ToString>(writer: &Arc<Mutex<T>>, buffer: &mut Vec<U>) {
+    let mut writer = writer.lock().expect("Failed to lock writer");
+
+    writer
+        .write_all(
+            buffer
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .as_bytes(),
+        )
+        .expect("Failed to write to buffer");
+
+    writer
+        .write_all(b"\n")
+        .expect("Failed to write newline to buffer");
+
+    buffer.clear();
 }
 
 #[inline(always)]
@@ -599,6 +979,20 @@ fn create_progress_bar(total_size: u64, is_binary_bytes: bool) -> ProgressBar {
             )
             .unwrap()
     };
+
+    progress_bar.set_style(style);
+
+    progress_bar
+}
+
+fn create_progress_bar_amount(total_size: u64) -> ProgressBar {
+    let progress_bar = ProgressBar::new(total_size);
+
+    let style = ProgressStyle::default_bar()
+        .template(
+            "{percent}% {bar:40.cyan/blue} {human_pos:.yellow}/{human_len:.magenta} ({eta:.cyan})",
+        )
+        .unwrap();
 
     progress_bar.set_style(style);
 
