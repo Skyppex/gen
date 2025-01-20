@@ -216,6 +216,10 @@ fn generate_ascii<T: Write + Send + 'static>(
     let mut handles = vec![];
 
     for chunk_size in chunks {
+        if chunk_size == 0 {
+            continue;
+        }
+
         let writer = Arc::clone(&writer);
         let progress_bar = Arc::clone(&progress_bar);
 
@@ -384,6 +388,10 @@ fn generate_unicode<T: Write + Send + 'static>(
     let mut handles = vec![];
 
     for chunk_size in chunks {
+        if chunk_size == 0 {
+            continue;
+        }
+
         let writer = Arc::clone(&writer);
         let progress_bar = Arc::clone(&progress_bar);
 
