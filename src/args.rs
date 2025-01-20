@@ -109,12 +109,12 @@ pub enum Command {
     /// Warning: Your terminal emulator might have trouble rendering large output strings.
     #[command(verbatim_doc_comment)]
     Unicode {
+        /// Choose a specific encoding. Possible values: utf8, utf16, utf32.
+        encoding: UnicodeEncoding,
+
         /// Size of the output. Format: <value><unit>.
         /// Possible units: B, KB, MB, GB, KiB, MiB, GiB.
         size: ByteSize,
-
-        /// Choose a specific encoding. Possible values: utf8, utf16, utf32.
-        encoding: UnicodeEncoding,
 
         /// Choose a specific character set.
         #[arg(short, long)]
