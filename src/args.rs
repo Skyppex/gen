@@ -1,4 +1,4 @@
-use std::{fmt::Display, num::NonZeroUsize, str::FromStr};
+use std::{fmt::Display, num::NonZeroUsize, path::PathBuf, str::FromStr};
 
 use clap::{error::ErrorKind, ArgGroup, Error, Parser, Subcommand};
 
@@ -7,9 +7,13 @@ use clap::{error::ErrorKind, ArgGroup, Error, Parser, Subcommand};
 #[command(version, author, about)]
 // Only for the ascii subcommand. It doesn't work when i but this line on the enum variant itself
 pub struct GenArgs {
+    /// Start gen as a daemon.
+    #[arg(long, requires("destination"))]
+    pub daemon: bool,
+
     /// The destination file to write to. If not provided, write to stdout.
     #[arg(short, long)]
-    pub destination: Option<String>,
+    pub destination: Option<PathBuf>,
 
     #[command(subcommand)]
     pub commands: Command,
@@ -160,7 +164,8 @@ pub enum Command {
     Ascii {
         /// Size of the output. Format: <value><unit>.
         /// Possible units: B, KB, MB, GB, KiB, MiB, GiB.
-        size: ByteSize,
+        #[arg(short, long, verbatim_doc_comment)]
+        size: Option<ByteSize>,
 
         /// Choose a specific character set.
         #[arg(short, long)]
