@@ -47,7 +47,7 @@ pub enum Command {
         /// Warning: The smaller the buffer length,
         /// the slower the generation will be due to more frequent writes.
         #[arg(short, long, verbatim_doc_comment)]
-        buf_len: Option<Size>,
+        buf_size: Option<Size>,
 
         /// Show a progress bar.
         #[arg(short, long, default_value = "false")]
@@ -79,7 +79,7 @@ pub enum Command {
         /// Warning: The smaller the buffer length,
         /// the slower the generation will be due to more frequent writes.
         #[arg(short, long, verbatim_doc_comment)]
-        buf_len: Option<Size>,
+        buf_size: Option<Size>,
 
         /// Show a progress bar.
         #[arg(short, long, default_value = "false")]
@@ -111,7 +111,7 @@ pub enum Command {
         /// Warning: The smaller the buffer length,
         /// the slower the generation will be due to more frequent writes.
         #[arg(short, long, verbatim_doc_comment)]
-        buf_len: Option<Size>,
+        buf_size: Option<Size>,
 
         /// Show a progress bar.
         #[arg(short, long, default_value = "false")]
@@ -147,7 +147,7 @@ pub enum Command {
         /// Warning: The smaller the buffer length,
         /// the slower the generation will be due to more frequent writes.
         #[arg(short, long, verbatim_doc_comment)]
-        buf_len: Option<Size>,
+        buf_size: Option<Size>,
 
         /// Show a progress bar.
         #[arg(short, long, default_value = "false")]
@@ -209,7 +209,8 @@ pub enum Command {
 
         /// Size of the output. Format: <value><unit>.
         /// Possible units: B, KB, MB, GB, KiB, MiB, GiB.
-        size: ByteSize,
+        #[arg(short, long, verbatim_doc_comment)]
+        size: Option<ByteSize>,
 
         /// Choose a specific character set.
         #[arg(short, long)]
@@ -337,6 +338,13 @@ impl ByteSize {
             ByteUnit::MiB => self.value * 1024 * 1024,
             ByteUnit::GB => self.value * 1000 * 1000 * 1000,
             ByteUnit::GiB => self.value * 1024 * 1024 * 1024,
+        }
+    }
+
+    pub fn one() -> Self {
+        ByteSize {
+            value: 1,
+            unit: ByteUnit::B,
         }
     }
 

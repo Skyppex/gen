@@ -21,13 +21,13 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
             range,
             amount,
             threads,
-            buf_len,
+            buf_size,
             progress,
         } => generate_int(
             range,
             amount,
             threads,
-            buf_len,
+            buf_size,
             progress,
             writer,
             args.daemon,
@@ -36,13 +36,13 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
             range,
             amount,
             threads,
-            buf_len,
+            buf_size,
             progress,
         } => generate_float(
             range,
             amount,
             threads,
-            buf_len,
+            buf_size,
             progress,
             writer,
             args.daemon,
@@ -51,13 +51,13 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
             version,
             amount,
             threads,
-            buf_len,
+            buf_size,
             progress,
         } => generate_uuid(
             version,
             amount,
             threads,
-            buf_len,
+            buf_size,
             progress,
             writer,
             args.daemon,
@@ -68,7 +68,7 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
             query,
             amount,
             threads,
-            buf_len,
+            buf_size,
             progress,
         } => generate_url(
             length,
@@ -76,7 +76,7 @@ pub fn run<T: Write + Send + 'static>(args: GenArgs, writer: Arc<Mutex<T>>) {
             query,
             amount,
             threads,
-            buf_len,
+            buf_size,
             progress,
             writer,
             args.daemon,
@@ -130,7 +130,7 @@ fn generate_int<T: Write + Send + 'static>(
     range: Option<IntRange>,
     amount: Option<Size>,
     threads: Option<NonZeroUsize>,
-    buf_len: Option<Size>,
+    buf_size: Option<Size>,
     progress: bool,
     writer: Arc<Mutex<T>>,
     daemon: bool,
@@ -165,7 +165,7 @@ fn generate_int<T: Write + Send + 'static>(
         None
     });
 
-    let buf_len = Arc::new(buf_len);
+    let buf_size = Arc::new(buf_size);
 
     let mut handles = vec![];
 
@@ -177,7 +177,7 @@ fn generate_int<T: Write + Send + 'static>(
         let writer = Arc::clone(&writer);
         let progress_bar = Arc::clone(&progress_bar);
 
-        let buf_len = buf_len.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
+        let buf_size = buf_size.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
             chunk_size / num_threads
         } else {
             chunk_size
@@ -188,11 +188,11 @@ fn generate_int<T: Write + Send + 'static>(
             let mut gen_func = || rng.gen_range(min..=max);
 
             if infinite {
-                let buf_len = 1024;
-                let mut buffer = Vec::with_capacity(buf_len);
+                let buf_size = 1024;
+                let mut buffer = Vec::with_capacity(buf_size);
 
                 loop {
-                    generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                    generate_random_value(buf_size, &mut gen_func, &mut buffer, &progress_bar);
 
                     if writeln(&writer, &mut buffer).is_err() {
                         break;
@@ -202,13 +202,13 @@ fn generate_int<T: Write + Send + 'static>(
                 return;
             }
 
-            let mut buffer = Vec::with_capacity(buf_len);
+            let mut buffer = Vec::with_capacity(buf_size);
 
-            let rounds = chunk_size / buf_len;
-            let remainder = chunk_size % buf_len;
+            let rounds = chunk_size / buf_size;
+            let remainder = chunk_size % buf_size;
 
             for _ in 0..rounds {
-                generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                generate_random_value(buf_size, &mut gen_func, &mut buffer, &progress_bar);
                 writeln(&writer, &mut buffer).expect("Failed to write to buffer");
             }
 
@@ -240,7 +240,7 @@ fn generate_float<T: Write + Send + 'static>(
     range: Option<FloatRange>,
     amount: Option<Size>,
     threads: Option<NonZeroUsize>,
-    buf_len: Option<Size>,
+    buf_size: Option<Size>,
     progress: bool,
     writer: Arc<Mutex<T>>,
     daemon: bool,
@@ -275,7 +275,7 @@ fn generate_float<T: Write + Send + 'static>(
         None
     });
 
-    let buf_len = Arc::new(buf_len);
+    let buf_size = Arc::new(buf_size);
 
     let mut handles = vec![];
 
@@ -287,7 +287,7 @@ fn generate_float<T: Write + Send + 'static>(
         let writer = Arc::clone(&writer);
         let progress_bar = Arc::clone(&progress_bar);
 
-        let buf_len = buf_len.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
+        let buf_size = buf_size.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
             chunk_size / num_threads
         } else {
             chunk_size
@@ -299,11 +299,11 @@ fn generate_float<T: Write + Send + 'static>(
             let mut gen_func = || rng.gen_range(min..=max);
 
             if infinite {
-                let buf_len = 1024;
-                let mut buffer = Vec::with_capacity(buf_len);
+                let buf_size = 1024;
+                let mut buffer = Vec::with_capacity(buf_size);
 
                 loop {
-                    generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                    generate_random_value(buf_size, &mut gen_func, &mut buffer, &progress_bar);
 
                     if writeln(&writer, &mut buffer).is_err() {
                         break;
@@ -313,13 +313,13 @@ fn generate_float<T: Write + Send + 'static>(
                 return;
             }
 
-            let mut buffer = Vec::with_capacity(buf_len);
+            let mut buffer = Vec::with_capacity(buf_size);
 
-            let rounds = chunk_size / buf_len;
-            let remainder = chunk_size % buf_len;
+            let rounds = chunk_size / buf_size;
+            let remainder = chunk_size % buf_size;
 
             for _ in 0..rounds {
-                generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                generate_random_value(buf_size, &mut gen_func, &mut buffer, &progress_bar);
                 writeln(&writer, &mut buffer).expect("Failed to write to buffer");
             }
 
@@ -351,7 +351,7 @@ fn generate_uuid<T: Write + Send + 'static>(
     version: Option<UuidVersion>,
     amount: Option<Size>,
     threads: Option<NonZeroUsize>,
-    buf_len: Option<Size>,
+    buf_size: Option<Size>,
     progress: bool,
     writer: Arc<Mutex<T>>,
     daemon: bool,
@@ -383,7 +383,7 @@ fn generate_uuid<T: Write + Send + 'static>(
         None
     });
 
-    let buf_len = Arc::new(buf_len);
+    let buf_size = Arc::new(buf_size);
 
     let mut gen_func = match version {
         Some(UuidVersion::Empty) => || Uuid::nil().to_string(),
@@ -401,7 +401,7 @@ fn generate_uuid<T: Write + Send + 'static>(
         let writer = Arc::clone(&writer);
         let progress_bar = Arc::clone(&progress_bar);
 
-        let buf_len = buf_len.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
+        let buf_size = buf_size.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
             chunk_size / num_threads
         } else {
             chunk_size
@@ -409,11 +409,11 @@ fn generate_uuid<T: Write + Send + 'static>(
 
         let handle = thread::spawn(move || {
             if infinite {
-                let buf_len = 1024;
-                let mut buffer = Vec::with_capacity(buf_len);
+                let buf_size = 1024;
+                let mut buffer = Vec::with_capacity(buf_size);
 
                 loop {
-                    generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                    generate_random_value(buf_size, &mut gen_func, &mut buffer, &progress_bar);
 
                     if writeln(&writer, &mut buffer).is_err() {
                         break;
@@ -423,12 +423,12 @@ fn generate_uuid<T: Write + Send + 'static>(
                 return;
             }
 
-            let mut buffer = Vec::with_capacity(buf_len);
-            let rounds = chunk_size / buf_len;
-            let remainder = chunk_size % buf_len;
+            let mut buffer = Vec::with_capacity(buf_size);
+            let rounds = chunk_size / buf_size;
+            let remainder = chunk_size % buf_size;
 
             for _ in 0..rounds {
-                generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                generate_random_value(buf_size, &mut gen_func, &mut buffer, &progress_bar);
                 writeln(&writer, &mut buffer).expect("Failed to write to buffer");
             }
 
@@ -460,7 +460,7 @@ fn generate_url<T: Write + Send + 'static>(
     query: bool,
     amount: Option<Size>,
     threads: Option<NonZeroUsize>,
-    buf_len: Option<Size>,
+    buf_size: Option<Size>,
     progress: bool,
     writer: Arc<Mutex<T>>,
     daemon: bool,
@@ -492,7 +492,7 @@ fn generate_url<T: Write + Send + 'static>(
         None
     });
 
-    let buf_len = Arc::new(buf_len);
+    let buf_size = Arc::new(buf_size);
 
     let mut gen_func = move || {
         let protocol = "https".to_owned();
@@ -542,7 +542,7 @@ fn generate_url<T: Write + Send + 'static>(
         let writer = Arc::clone(&writer);
         let progress_bar = Arc::clone(&progress_bar);
 
-        let buf_len = buf_len.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
+        let buf_size = buf_size.map(|b| b.get()).unwrap_or(if chunk_size > 1000 {
             chunk_size / num_threads
         } else {
             chunk_size
@@ -550,11 +550,11 @@ fn generate_url<T: Write + Send + 'static>(
 
         let handle = thread::spawn(move || {
             if infinite {
-                let buf_len = 1024;
-                let mut buffer = Vec::with_capacity(buf_len);
+                let buf_size = 1024;
+                let mut buffer = Vec::with_capacity(buf_size);
 
                 loop {
-                    generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                    generate_random_value(buf_size, &mut gen_func, &mut buffer, &progress_bar);
 
                     if writeln(&writer, &mut buffer).is_err() {
                         break;
@@ -564,12 +564,12 @@ fn generate_url<T: Write + Send + 'static>(
                 return;
             }
 
-            let mut buffer = Vec::with_capacity(buf_len);
-            let rounds = chunk_size / buf_len;
-            let remainder = chunk_size % buf_len;
+            let mut buffer = Vec::with_capacity(buf_size);
+            let rounds = chunk_size / buf_size;
+            let remainder = chunk_size % buf_size;
 
             for _ in 0..rounds {
-                generate_random_value(buf_len, &mut gen_func, &mut buffer, &progress_bar);
+                generate_random_value(buf_size, &mut gen_func, &mut buffer, &progress_bar);
                 writeln(&writer, &mut buffer).expect("Failed to write to buffer");
             }
 
@@ -795,7 +795,7 @@ fn generate_ascii<T: Write + Send + 'static>(
 }
 
 fn generate_unicode<T: Write + Send + 'static>(
-    size: ByteSize,
+    size: Option<ByteSize>,
     encoding: UnicodeEncoding,
     charset: Option<String>,
     exclude: Option<String>,
@@ -805,11 +805,20 @@ fn generate_unicode<T: Write + Send + 'static>(
     writer: Arc<Mutex<T>>,
     daemon: bool,
 ) {
+    if daemon {
+        panic!("--daemon option is not supported for unicode generation yet");
+    }
+
     let min_byte_size = match encoding {
         UnicodeEncoding::Utf8 => 1,
         UnicodeEncoding::Utf16 => 2,
         UnicodeEncoding::Utf32 => 4,
     };
+
+    let size = size.unwrap_or(ByteSize {
+        value: min_byte_size,
+        unit: ByteUnit::B,
+    });
 
     let num_threads = threads.map(|t| t.get()).unwrap_or_else(num_cpus::get);
     let buf_size = buf_size.map(|b| b.to_bytes() / num_threads);
