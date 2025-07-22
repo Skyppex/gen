@@ -10,6 +10,8 @@ use std::{
 
 use args::GenArgs;
 use clap::Parser;
+
+#[cfg(win)]
 use miow::pipe::{NamedPipe, NamedPipeBuilder};
 
 fn main() -> Result<()> {
@@ -61,7 +63,9 @@ fn run_daemon(path: &Path, args: &GenArgs) -> Result<()> {
 }
 
 pub enum DaemonWriter {
+    #[cfg(unix)]
     Unix(PathBuf),
+    #[cfg(win)]
     Windows(NamedPipe),
 }
 
@@ -94,9 +98,11 @@ impl DaemonWriter {
 
     pub fn connect(&self) -> Result<()> {
         match self {
+            #[cfg(unix)]
             DaemonWriter::Unix(path) => {
                 todo!("Implement Unix named pipe connection");
             }
+            #[cfg(win)]
             DaemonWriter::Windows(pipe) => pipe.connect(),
         }
     }
@@ -105,17 +111,21 @@ impl DaemonWriter {
 impl Write for DaemonWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
+            #[cfg(unix)]
             DaemonWriter::Unix(_) => {
                 todo!("Implement Unix named pipe write");
             }
+            #[cfg(win)]
             DaemonWriter::Windows(pipe) => pipe.write(buf),
         }
     }
     fn flush(&mut self) -> io::Result<()> {
         match self {
+            #[cfg(unix)]
             DaemonWriter::Unix(_) => {
                 todo!("Implement Unix named pipe flush");
             }
+            #[cfg(win)]
             DaemonWriter::Windows(pipe) => pipe.flush(),
         }
     }
