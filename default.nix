@@ -1,7 +1,10 @@
-{ src, naerskLib, pkg-config }:
-
+{
+  src,
+  naerskLib,
+  pkg-config,
+}:
 naerskLib.buildPackage {
   name = "gen";
   src = src;
-  nativeBuildInputs = [ pkg-config ];
+  nativeBuildInputs = [pkg-config];
 }
