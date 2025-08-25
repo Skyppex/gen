@@ -512,7 +512,7 @@ fn generate_url<T: Write + Send + 'static>(
 
         match (paths, query) {
             (None, false) => {
-                format!("{}://{}", protocol, domain)
+                format!("{protocol}://{domain}")
             }
             (Some(p), false) => {
                 format!("{}://{}/{}", protocol, domain, p.join("/"))
@@ -620,10 +620,7 @@ fn generate_ascii<T: Write + Send + 'static>(
     if let Some(ref buf_size) = buf_size {
         if buf_size < &SIMUL_BYTES {
             panic!(
-                "Buffer size after being divided by the number of threads ({}) must be {} or greater and divisible by {}",
-                num_threads,
-                SIMUL_BYTES,
-                SIMUL_BYTES
+                "Buffer size after being divided by the number of threads ({num_threads}) must be {SIMUL_BYTES} or greater and divisible by {SIMUL_BYTES}"
             );
         }
     }
@@ -826,10 +823,7 @@ fn generate_unicode<T: Write + Send + 'static>(
     if let Some(ref buf_size) = buf_size {
         if buf_size < &min_byte_size {
             panic!(
-                "Buffer size after being divided by the number of threads ({}) must be {} or greater and divisible by {}",
-                num_threads,
-                min_byte_size,
-                min_byte_size
+                "Buffer size after being divided by the number of threads ({num_threads}) must be {min_byte_size} or greater and divisible by {min_byte_size}"
             );
         }
     }
@@ -840,15 +834,13 @@ fn generate_unicode<T: Write + Send + 'static>(
 
     if total_size < min_byte_size {
         panic!(
-            "Size too small for encoding.\nMinimum size for {} encoding is {} bytes",
-            encoding, min_byte_size
+            "Size too small for encoding.\nMinimum size for {encoding} encoding is {min_byte_size} bytes"
         );
     }
 
     if total_size % min_byte_size != 0 {
         panic!(
-            "Size must be divisible by {} for {} encoding",
-            min_byte_size, encoding
+            "Size must be divisible by {min_byte_size} for {encoding} encoding"
         );
     }
 

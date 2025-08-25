@@ -11,7 +11,7 @@ use std::{
 use args::GenArgs;
 use clap::Parser;
 
-#[cfg(win)]
+#[cfg(windows)]
 use miow::pipe::{NamedPipe, NamedPipeBuilder};
 
 fn main() -> Result<()> {
@@ -26,11 +26,11 @@ fn main() -> Result<()> {
 
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)
-                    .unwrap_or_else(|_| panic!("Failed to create directories for {:?}", parent));
+                    .unwrap_or_else(|_| panic!("Failed to create directories for {parent:?}"));
             }
 
             let writer = fs::File::create(dest)
-                .unwrap_or_else(|_| panic!("Failed to create file {:?}", dest));
+                .unwrap_or_else(|_| panic!("Failed to create file {dest:?}"));
 
             program::run(args.clone(), Arc::new(Mutex::new(writer)));
         }
@@ -55,7 +55,7 @@ fn run_daemon(path: &Path, args: &GenArgs) -> Result<()> {
                 program::run(args.clone(), writer.clone());
             }
             Err(e) => {
-                eprintln!("Failed to connect to daemon: {}", e);
+                eprintln!("Failed to connect to daemon: {e}");
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -65,7 +65,7 @@ fn run_daemon(path: &Path, args: &GenArgs) -> Result<()> {
 pub enum DaemonWriter {
     #[cfg(unix)]
     Unix(PathBuf),
-    #[cfg(win)]
+    #[cfg(windows)]
     Windows(NamedPipe),
 }
 
@@ -102,7 +102,7 @@ impl DaemonWriter {
             DaemonWriter::Unix(path) => {
                 todo!("Implement Unix named pipe connection");
             }
-            #[cfg(win)]
+            #[cfg(windows)]
             DaemonWriter::Windows(pipe) => pipe.connect(),
         }
     }
@@ -115,7 +115,7 @@ impl Write for DaemonWriter {
             DaemonWriter::Unix(_) => {
                 todo!("Implement Unix named pipe write");
             }
-            #[cfg(win)]
+            #[cfg(windows)]
             DaemonWriter::Windows(pipe) => pipe.write(buf),
         }
     }
@@ -125,7 +125,7 @@ impl Write for DaemonWriter {
             DaemonWriter::Unix(_) => {
                 todo!("Implement Unix named pipe flush");
             }
-            #[cfg(win)]
+            #[cfg(windows)]
             DaemonWriter::Windows(pipe) => pipe.flush(),
         }
     }

@@ -341,13 +341,6 @@ impl ByteSize {
         }
     }
 
-    pub fn one() -> Self {
-        ByteSize {
-            value: 1,
-            unit: ByteUnit::B,
-        }
-    }
-
     pub fn is_decimal_unit(&self) -> bool {
         match self.unit {
             ByteUnit::KB | ByteUnit::MB | ByteUnit::GB => true,
